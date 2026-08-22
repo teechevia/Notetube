@@ -4,3 +4,12 @@ pydantic
 google-genai
 youtube-transcript-api
 python-dotenv
+python-pptx
+edge-tts
+chromadb
+langchain
+langchain-community
+langchain-google-genai
+pypdf
+beautifulsoup4
+sqlalchemy
