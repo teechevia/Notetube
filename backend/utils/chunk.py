@@ -1,5 +1,3 @@
-text = "Python is a powerful programming language."
-chunk_size = 15
 def chunk_text(text: str, chunk_size: int = 3000) -> list[str]:
     chunks = []
     i = 0
@@ -14,5 +12,3 @@ def chunk_text(text: str, chunk_size: int = 3000) -> list[str]:
         chunks.append(chunk)
         i = end
     return chunks
-
-print(chunk_text(text, chunk_size))

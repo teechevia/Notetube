@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from routes import sources
+from api import sources, notebooks
 
 app = FastAPI()
 
@@ -12,4 +12,5 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(notebooks.router)
 app.include_router(sources.router)

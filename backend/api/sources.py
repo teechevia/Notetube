@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session
-from database.db import get_db, SourceModel
+from database.db import get_db, SourceModel, Notebook, ChatMessage
 from database.vector_store import add_documents_to_store, get_vector_store
 from services.loaders import load_youtube, load_url, load_pdf
 from pydantic import BaseModel
@@ -14,8 +14,8 @@ class SourceCreate(BaseModel):
     url: str
     type: str # youtube, url
 
-@router.post("/sources")
-def add_source(source: SourceCreate, db: Session = Depends(get_db)):
+@router.post("/notebooks/{notebook_id}/sources")
+def add_source(notebook_id: int, source: SourceCreate, db: Session = Depends(get_db)):
     if source.type == "youtube":
         docs = load_youtube(source.url)
         title = "YouTube Video"
@@ -28,64 +28,68 @@ def add_source(source: SourceCreate, db: Session = Depends(get_db)):
     if not docs:
         raise HTTPException(status_code=400, detail="Failed to load content")
 
-    db_source = SourceModel(title=title, type=source.type, url=source.url)
+    db_source = SourceModel(title=title, type=source.type, url=source.url, notebook_id=notebook_id)
     db.add(db_source)
     db.commit()
     db.refresh(db_source)
 
     for doc in docs:
         doc.metadata["source_id"] = db_source.id
+        doc.metadata["notebook_id"] = notebook_id
     add_documents_to_store(docs)
     return {"id": db_source.id, "title": db_source.title, "type": db_source.type, "url": db_source.url}
 
-@router.post("/sources/pdf")
-async def add_source_pdf(file: UploadFile = File(...), db: Session = Depends(get_db)):
-    temp_file_path = f"temp_{uuid.uuid4().hex}.pdf"
+@router.post("/notebooks/{notebook_id}/sources/file")
+async def add_source_file(notebook_id: int, file: UploadFile = File(...), db: Session = Depends(get_db)):
+    ext = file.filename.split('.')[-1].lower() if '.' in file.filename else ''
+    temp_file_path = f"temp_{uuid.uuid4().hex}.{ext}"
     with open(temp_file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
 
-    docs = load_pdf(temp_file_path)
-    os.remove(temp_file_path)
+    try:
+        if ext == 'pdf':
+            docs = load_pdf(temp_file_path)
+        elif ext in ['txt', 'md']:
+            from services.loaders import load_txt
+            docs = load_txt(temp_file_path)
+        elif ext == 'docx':
+            from services.loaders import load_docx
+            docs = load_docx(temp_file_path)
+        elif ext == 'pptx':
+            from services.loaders import load_pptx
+            docs = load_pptx(temp_file_path)
+        elif ext in ['mp3', 'wav']:
+            from services.loaders import load_audio
+            docs = load_audio(temp_file_path)
+        else:
+            raise HTTPException(status_code=400, detail="Unsupported file type")
+    finally:
+        if os.path.exists(temp_file_path):
+            os.remove(temp_file_path)
 
     if not docs:
-        raise HTTPException(status_code=400, detail="Failed to load PDF content")
+        raise HTTPException(status_code=400, detail="Failed to load file content")
 
-    db_source = SourceModel(title=file.filename, type="pdf", url="Local PDF")
+    db_source = SourceModel(title=file.filename, type=ext, url="Local File", notebook_id=notebook_id)
     db.add(db_source)
     db.commit()
     db.refresh(db_source)
 
     for doc in docs:
         doc.metadata["source_id"] = db_source.id
+        doc.metadata["notebook_id"] = notebook_id
 
     add_documents_to_store(docs)
     return {"id": db_source.id, "title": db_source.title, "type": db_source.type, "url": db_source.url}
 
-@router.get("/sources")
-def get_sources(db: Session = Depends(get_db)):
-    sources = db.query(SourceModel).all()
+@router.get("/notebooks/{notebook_id}/sources")
+def get_sources(notebook_id: int, db: Session = Depends(get_db)):
+    sources = db.query(SourceModel).filter(SourceModel.notebook_id == notebook_id).all()
     return sources
 
-@router.delete("/sources/all")
-def delete_all_sources(db: Session = Depends(get_db)):
-    db.query(SourceModel).delete()
-    db.commit()
-
-    from database.vector_store import get_vector_store
-    try:
-        store = get_vector_store()
-        all_docs = store.get()
-        if all_docs and all_docs["ids"]:
-            store.delete(ids=all_docs["ids"])
-            store.persist()
-    except Exception as e:
-        print(f"Failed to clear chroma: {e}")
-
-    return {"message": "Workspace cleared"}
-
-@router.delete("/sources/{source_id}")
-def delete_source(source_id: int, db: Session = Depends(get_db)):
-    db_source = db.query(SourceModel).filter(SourceModel.id == source_id).first()
+@router.delete("/notebooks/{notebook_id}/sources/{source_id}")
+def delete_source(notebook_id: int, source_id: int, db: Session = Depends(get_db)):
+    db_source = db.query(SourceModel).filter(SourceModel.id == source_id, SourceModel.notebook_id == notebook_id).first()
     if not db_source:
         raise HTTPException(status_code=404, detail="Source not found")
 
@@ -102,11 +106,22 @@ def delete_source(source_id: int, db: Session = Depends(get_db)):
 
 class ChatRequest(BaseModel):
     query: str
+    source_ids: list[int] = []
 
-@router.post("/chat")
-def chat_with_sources(req: ChatRequest):
+@router.post("/notebooks/{notebook_id}/chat")
+def chat_with_sources(notebook_id: int, req: ChatRequest):
     vector_store = get_vector_store()
-    results = vector_store.similarity_search(req.query, k=5)
+
+    # Simple workaround for chroma filtering (Chroma doesn't natively support easy IN queries through langchain wrapper in some versions, but we can filter after or use simple dict if 1 source)
+    # Actually, langchain chromadb supports $in operator for lists!
+    filter_dict = {"notebook_id": notebook_id}
+    if req.source_ids:
+        if len(req.source_ids) == 1:
+            filter_dict["source_id"] = req.source_ids[0]
+        else:
+            filter_dict["source_id"] = {"$in": req.source_ids}
+
+    results = vector_store.similarity_search(req.query, k=5, filter=filter_dict)
 
     if not results:
         return {"answer": "I don't have any sources uploaded yet, or I couldn't find any relevant information."}
@@ -125,15 +140,17 @@ class StudioRequest(BaseModel):
     host_a_name: str | None = "Host A"
     host_b_name: str | None = "Host B"
 
-@router.post("/studio/generate")
-def generate_studio_content(req: StudioRequest, db: Session = Depends(get_db)):
+@router.post("/notebooks/{notebook_id}/studio/generate")
+def generate_studio_content(notebook_id: int, req: StudioRequest, db: Session = Depends(get_db)):
     vector_store = get_vector_store()
-    all_docs = vector_store.get()
 
-    if not all_docs or not all_docs["documents"]:
+    collection = vector_store._collection
+    results = collection.get(where={"notebook_id": notebook_id})
+
+    if not results or not results["documents"]:
         raise HTTPException(status_code=400, detail="No sources available to generate from.")
 
-    full_text = "\n\n".join(all_docs["documents"])
+    full_text = "\n\n".join(results["documents"])
 
     from services.generators import generate_briefing_doc, generate_flashcards, generate_quiz, generate_faq, generate_podcast_script, generate_human_notes
 
@@ -210,3 +227,20 @@ async def interact_podcast(req: PodcastInteractRequest, db: Session = Depends(ge
 
     return {"content": script}
 
+
+class ChatHistoryRequest(BaseModel):
+    messages: list[dict]
+
+@router.get("/notebooks/{notebook_id}/chat_history")
+def get_chat_history(notebook_id: int, db: Session = Depends(get_db)):
+    msgs = db.query(ChatMessage).filter(ChatMessage.notebook_id == notebook_id).order_by(ChatMessage.id.asc()).all()
+    return [{"role": m.role, "text": m.text, "audioUrl": m.audio_url} for m in msgs]
+
+@router.post("/notebooks/{notebook_id}/chat_history")
+def save_chat_history(notebook_id: int, req: ChatHistoryRequest, db: Session = Depends(get_db)):
+    db.query(ChatMessage).filter(ChatMessage.notebook_id == notebook_id).delete()
+    for m in req.messages:
+        msg = ChatMessage(notebook_id=notebook_id, role=m.get("role"), text=m.get("text"), audio_url=m.get("audioUrl"))
+        db.add(msg)
+    db.commit()
+    return {"status": "ok"}
