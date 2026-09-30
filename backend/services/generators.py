@@ -30,8 +30,51 @@ def generate_briefing_doc(transcript: str):
     return ask_ai(prompt)
 
 def generate_human_notes(transcript: str):
-    prompt = f"Act as a diligent student watching a lecture. Create natural, human-made study notes based on this text. Use bullet points, bold text for emphasis, and make it look like authentic personal notes rather than a robotic AI summary.\n\nText:\n{transcript}"
-    return ask_ai(prompt)
+    # Prevent huge prompts and endless-looking output
+    transcript = transcript[:30000]
+
+    prompt = f"""
+Create high-quality study notes from the source material below.
+
+Rules:
+- Maximum about 1200 words.
+- Do not repeat information.
+- Do not produce an endless summary.
+- Use clear headings and bullet points.
+- Explain difficult concepts simply.
+- Include important examples from the source.
+- Only use information supported by the source.
+
+Structure:
+
+# Study Notes
+
+## Overview
+Brief explanation of the topic.
+
+## Key Concepts
+Important concepts and their explanations.
+
+## Detailed Notes
+The most important material, organized clearly.
+
+## Examples
+Important examples from the source.
+
+## Key Takeaways
+5-10 concise points.
+
+SOURCE MATERIAL:
+{transcript}
+"""
+
+    return ask_ai(
+        prompt,
+        system_instruction=(
+            "You are an expert academic note-taking assistant. "
+            "Be concise, clear, organized, and non-repetitive."
+        )
+    )
 
 def generate_faq(transcript: str):
     prompt = f"Create a Frequently Asked Questions (FAQ) document based on this text. Use Markdown. Format as Q: and A: pairs.\n\nText:\n{transcript}"
