@@ -139,13 +139,23 @@ class StudioRequest(BaseModel):
     instruction: str | None = None
     host_a_name: str | None = "Host A"
     host_b_name: str | None = "Host B"
+    source_ids: list[int] = []
 
 @router.post("/notebooks/{notebook_id}/studio/generate")
 def generate_studio_content(notebook_id: int, req: StudioRequest, db: Session = Depends(get_db)):
     vector_store = get_vector_store()
 
     collection = vector_store._collection
-    results = collection.get(where={"notebook_id": notebook_id})
+    
+    where_filter = {"notebook_id": notebook_id}
+    
+    if req.source_ids:
+        if len(req.source_ids) == 1:
+            where_filter["source_id"] = req.source_ids[0]
+        else:
+            where_filter["source_id"] = {"$in": req.source_ids}
+            
+    results = collection.get(where=where_filter)
 
     if not results or not results["documents"]:
         raise HTTPException(status_code=400, detail="No sources available to generate from.")
