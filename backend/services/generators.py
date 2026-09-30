@@ -1,5 +1,6 @@
 import json
-from services.ai import ask_ai
+from services.ai_router import generate_text
+from services.ai_config import Task
 
 def clean_json_response(res: str):
     res = res.strip()
@@ -11,7 +12,7 @@ def clean_json_response(res: str):
 
 def generate_flashcards(transcript: str):
     prompt = f"Create 10 important flashcards from this text. Return ONLY a valid JSON array of objects. Each object must have exactly two keys: 'front' (the question or term) and 'back' (the answer or definition). Do NOT include markdown blocks like ```json.\n\nText:\n{transcript}"
-    res = ask_ai(prompt)
+    res = generate_text(Task.FLASHCARDS, prompt)
     try:
         return json.loads(clean_json_response(res))
     except Exception as e:
@@ -19,7 +20,7 @@ def generate_flashcards(transcript: str):
 
 def generate_quiz(transcript: str):
     prompt = f"Create a 5-question multiple choice quiz from this text. Return ONLY a valid JSON array of objects. Each object must have: 'question' (string), 'options' (array of 4 strings), and 'answer' (the exact string of the correct option). Do NOT include markdown blocks.\n\nText:\n{transcript}"
-    res = ask_ai(prompt)
+    res = generate_text(Task.QUIZ, prompt)
     try:
         return json.loads(clean_json_response(res))
     except Exception as e:
@@ -27,7 +28,7 @@ def generate_quiz(transcript: str):
 
 def generate_briefing_doc(transcript: str):
     prompt = f"Create a comprehensive Briefing Doc summarizing this text. Use Markdown. Include an Executive Summary, Key Takeaways, and Detailed Breakdown.\n\nText:\n{transcript}"
-    return ask_ai(prompt)
+    return generate_text(Task.BRIEFING, prompt)
 
 def generate_human_notes(transcript: str):
     # Prevent huge prompts and endless-looking output
@@ -68,7 +69,8 @@ SOURCE MATERIAL:
 {transcript}
 """
 
-    return ask_ai(
+    return generate_text(
+        Task.HUMAN_NOTES,
         prompt,
         system_instruction=(
             "You are an expert academic note-taking assistant. "
@@ -78,7 +80,7 @@ SOURCE MATERIAL:
 
 def generate_faq(transcript: str):
     prompt = f"Create a Frequently Asked Questions (FAQ) document based on this text. Use Markdown. Format as Q: and A: pairs.\n\nText:\n{transcript}"
-    return ask_ai(prompt)
+    return generate_text(Task.FAQ, prompt)
 
 def generate_podcast_script(text: str, instruction: str = "", host_a: str = "Host A", host_b: str = "Host B") -> list:
     base_prompt = "You are writing a podcast script..."
@@ -100,7 +102,7 @@ def generate_podcast_script(text: str, instruction: str = "", host_a: str = "Hos
     {text}
     """
 
-    response = ask_ai(prompt, system_instruction="You must reply with valid JSON array only.")
+    response = generate_text(Task.PODCAST, prompt, system_instruction="You must reply with valid JSON array only.")
 
     import json
     try:
@@ -128,7 +130,7 @@ def generate_interactive_podcast_response(user_message: str, chat_history: str, 
     Do NOT wrap the output in markdown code blocks, just raw JSON.
     """
 
-    response = ask_ai(prompt, system_instruction="You must reply with valid JSON array only.")
+    response = generate_text(Task.PODCAST, prompt, system_instruction="You must reply with valid JSON array only.")
 
     import json
     try:

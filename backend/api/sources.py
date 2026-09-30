@@ -129,8 +129,9 @@ def chat_with_sources(notebook_id: int, req: ChatRequest):
     context = "\n\n".join([doc.page_content for doc in results])
     prompt = f"Use the following pieces of retrieved context to answer the question. If you don't know the answer, just say that you don't know.\n\nContext:\n{context}\n\nQuestion: {req.query}\nAnswer:"
 
-    from services.ai import ask_ai
-    answer = ask_ai(prompt, system_instruction="You are a helpful study assistant talking to the user about their uploaded documents.")
+    from services.ai_router import generate_text
+    from services.ai_config import Task
+    answer = generate_text(Task.CHAT, prompt, system_instruction="You are a helpful study assistant talking to the user about their uploaded documents.")
 
     return {"answer": answer}
 
