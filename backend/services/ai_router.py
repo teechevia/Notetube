@@ -1,20 +1,28 @@
 from services.ai_config import Task, AI_ROUTING_CONFIG
-from services.ai import ask_ai
+from services.providers.base import AIProvider
+from services.providers.gemini import GeminiProvider
+
+
+PROVIDERS: dict[str, type[AIProvider]] = {
+    "gemini": GeminiProvider,
+}
+
 
 def generate_text(task: Task, prompt: str, system_instruction: str = None) -> str:
     """
-    Routes text generation requests to the appropriate AI provider based on task.
-    Currently, all tasks route to the existing Gemini implementation.
+    Routes text generation requests through the configured AI provider.
     """
     config = AI_ROUTING_CONFIG.get(task)
     if not config:
         raise ValueError(f"No routing configuration found for task: {task}")
-    
-    provider = config.get("provider")
-    
-    if provider == "gemini":
-        if system_instruction:
-            return ask_ai(prompt, system_instruction)
-        return ask_ai(prompt)
-    else:
-        raise NotImplementedError(f"Provider '{provider}' is not implemented yet.")
+
+    provider_name = config.get("provider")
+    provider_class = PROVIDERS.get(provider_name)
+
+    if not provider_class:
+        raise NotImplementedError(
+            f"Provider '{provider_name}' is not implemented yet."
+        )
+
+    provider = provider_class()
+    return provider.generate_text(prompt, system_instruction)
