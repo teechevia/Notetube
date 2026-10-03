@@ -86,7 +86,7 @@ AI_ROUTING_CONFIG = {
     },
 
     Task.HUMAN_NOTES: {
-        "providers": ["gemini", "openrouter", "groq"],
+        "providers": ["groq", "openrouter", "gemini"]
     },
 
     Task.BRIEFING: {

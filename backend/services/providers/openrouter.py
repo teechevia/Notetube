@@ -1,6 +1,5 @@
-import os
-
 from openai import OpenAI
+from config import OPENROUTER_API_KEY
 
 from services.providers.base import AIProvider
 
@@ -15,7 +14,7 @@ OPENROUTER_MODEL_MAP = {
 
 class OpenRouterProvider(AIProvider):
     def __init__(self):
-        api_key = os.getenv("OPENROUTER_API_KEY")
+        api_key = OPENROUTER_API_KEY
 
         if not api_key:
             raise ValueError("OPENROUTER_API_KEY is not configured.")

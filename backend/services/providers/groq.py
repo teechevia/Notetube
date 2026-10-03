@@ -1,6 +1,5 @@
-import os
-
 from groq import Groq
+from config import GROQ_API_KEY
 
 from services.providers.base import AIProvider
 
@@ -15,7 +14,7 @@ GROQ_MODEL_MAP = {
 
 class GroqProvider(AIProvider):
     def __init__(self):
-        api_key = os.getenv("GROQ_API_KEY")
+        api_key = GROQ_API_KEY
 
         if not api_key:
             raise ValueError("GROQ_API_KEY is not configured.")

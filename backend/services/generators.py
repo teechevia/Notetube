@@ -562,75 +562,215 @@ def generate_human_notes(transcript: str, job_id=None):
             )
 
         prompt = f"""
-You are creating high-quality study notes from source material.
+You are transforming SOURCE MATERIAL into study notes.
 
-Your job is NOT to simply summarize the source.
+ABSOLUTE RULE:
+The SOURCE MATERIAL is the complete and only factual authority.
 
-Transform the source into notes that help a student:
-- understand the topic
-- remember the important ideas
-- see how concepts connect
-- understand difficult ideas through simple explanations
-- review the material efficiently
+Your job is NOT to explain the subject using your own knowledge.
+Your job is to reorganize and clarify what the source actually says.
 
-IMPORTANT SOURCE RULES:
-1. Treat the provided material as the only factual authority.
-2. Do not add outside knowledge.
-3. Do not invent examples, explanations, causes, motivations,
-   applications, statistics, or conclusions.
-4. Do not turn reasonable assumptions into facts.
-5. Preserve important qualifications and uncertainty.
-6. Remove repetition and filler.
-7. Do not mention that you are an AI.
-8. Do not create unsupported information just to fill a section.
+SOURCE FIDELITY HAS PRIORITY OVER COMPLETENESS.
 
-WRITING STYLE:
-- Write like an excellent human tutor.
-- Clear, natural, and educational.
-- Prefer explanation over compression.
-- Use short paragraphs.
-- Use bullets when useful.
-- Use tables only when they genuinely improve understanding.
-- Preserve important terminology.
-- Explain relationships only when supported by the material.
+If the source contains little information, the final notes must contain
+little information.
 
-STRUCTURE:
+========================
+ALLOWED TRANSFORMATIONS
+========================
+
+You MAY:
+
+- Rewrite a source statement using clearer language.
+- Simplify wording without changing its factual meaning.
+- Combine multiple source statements when the combined statement adds
+  no information beyond those statements.
+- Reorder source statements for better organization.
+- Convert source statements into bullets, tables, or lists.
+- Repeat information in a different section when necessary for structure.
+- Explain a term ONLY when the source itself provides that explanation.
+- State a relationship ONLY when the source explicitly establishes it.
+- State a process ONLY when the source explicitly describes that process.
+- State a cause, effect, purpose, benefit, limitation, or significance
+  ONLY when the source explicitly states it.
+
+========================
+ABSOLUTE PROHIBITIONS
+========================
+
+DO NOT use pretrained knowledge.
+
+DO NOT add facts because they are:
+- commonly known
+- logically implied
+- technically correct
+- useful for understanding
+- likely true
+- associated with the topic
+
+DO NOT invent:
+- examples
+- explanations
+- causes
+- effects
+- purposes
+- applications
+- benefits
+- limitations
+- relationships
+- comparisons
+- processes
+- sequences
+- motivations
+- consequences
+
+DO NOT expand a short source statement into a broader explanation.
+
+If the source says:
+
+"Branches allow different lines of development."
+
+You may write:
+
+"Branches allow different lines of development."
+
+You may also write:
+
+"Branches provide different lines of development."
+
+You MUST NOT write:
+
+"Branches allow developers to work independently."
+
+You MUST NOT write:
+
+"Branches are useful for developing features and fixes."
+
+You MUST NOT write:
+
+"Branches allow multiple developers to work simultaneously."
+
+Those statements may be true in general, but they are NOT supported
+by the source.
+
+========================
+SECTION RULES
+========================
 
 # Study Notes
 
 ## Overview
-Give a concise explanation of what the material is about.
+
+Only state what the source explicitly says about the overall material.
+
+Do not invent a broader description of the subject.
 
 ## Core Concepts
-Identify and explain the most important concepts.
+
+List concepts explicitly present in the source.
+
+For each concept, include ONLY information explicitly supported by
+the source.
+
+Use:
+
+### Concept Name
+
+**Definition:** Only if the source defines it.
+
+**Explanation:** Only if the source explains it.
+
+**Example:** Only if the source gives an example.
+
+**Connections:** Only if the source explicitly connects it to another
+concept.
+
+Do NOT create missing sections just to make the notes look complete.
 
 ## Detailed Explanation
-Organize the material into logical sections and explain
-important ideas clearly.
+
+Rewrite and organize the source information into a logical order.
+
+Do not add explanations that are absent from the source.
+
+## Processes and Sequences
+
+Include this section ONLY if the source explicitly describes a process
+or sequence.
+
+Preserve the source's actual order.
+
+Do NOT construct a process by combining facts that merely appear
+related.
+
+## Comparisons and Relationships
+
+Include ONLY relationships or comparisons that the source explicitly
+states as a relationship.
+
+Do NOT create a relationship merely because two source statements
+appear related.
+
+For example, if the source says:
+
+"Branches allow different lines of development."
+"Developers can merge branches to combine changes."
+
+Do NOT combine them into a new relationship such as:
+"Branches can later be merged to combine development lines."
+
+Keep the statements separate unless the source explicitly connects them.
 
 ## Examples
-Include examples only when supported by the material.
 
-## Connections
-Explain meaningful relationships between ideas when supported.
+Include ONLY examples explicitly present in the source.
+
+If there are no examples, omit this section.
 
 ## Important Details
-Include important facts, terminology, numbers,
-exceptions, and qualifications.
+
+Preserve important:
+- facts
+- terminology
+- numbers
+- dates
+- conditions
+- exceptions
+- qualifications
+- limitations
+- uncertainty
+- explicit conclusions
 
 ## Key Takeaways
-Give 5-10 concise takeaways containing the most important
-information a student should remember.
 
-QUALITY CHECK:
-- Every factual claim must be supported by the material.
-- Do not add outside knowledge.
-- Do not invent examples.
-- Do not invent explanations.
-- Preserve important context.
-- Remove repetition.
-- Make the notes useful for learning.
-- Do not introduce information that is absent from the material.
+Create concise takeaways by restating the most important source
+statements.
+
+Do NOT introduce new information.
+
+========================
+FINAL GROUNDING CHECK
+========================
+
+Before producing the answer, inspect EVERY factual statement.
+
+For each statement ask:
+
+"Where exactly is this information supported by the SOURCE MATERIAL?"
+
+If the answer is:
+- explicitly stated → KEEP IT
+- directly restated → KEEP IT
+- merely implied → REMOVE IT
+- common knowledge → REMOVE IT
+- logically obvious → REMOVE IT
+- likely true → REMOVE IT
+- useful but absent → REMOVE IT
+
+When uncertain, REMOVE the statement.
+
+The final notes must contain less information rather than unsupported
+information.
 
 SOURCE MATERIAL:
 
@@ -641,11 +781,13 @@ SOURCE MATERIAL:
             Task.HUMAN_NOTES,
             prompt,
             system_instruction=(
-                "You are an expert academic tutor and knowledge synthesizer. "
-                "The supplied material is the only factual authority. "
-                "Never add outside knowledge or invented information. "
-                "Prioritize accuracy, clarity, structure, conceptual "
-                "understanding, and learning value."
+                "You are an expert academic tutor creating source-grounded "
+                "study notes. The supplied material is the ONLY factual "
+                "authority. You may clarify and reorganize information "
+                "without changing its meaning, but you must never add "
+                "outside knowledge, unsupported explanations, invented "
+                "examples, or unstated relationships. Prioritize "
+                "comprehension, completeness, structure, and learning value."
             ),
         )
 
