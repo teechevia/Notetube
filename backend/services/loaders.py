@@ -6,7 +6,21 @@ from youtube_transcript_api import YouTubeTranscriptApi
 import re
 import os
 
-text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+text_splitter = RecursiveCharacterTextSplitter(
+    chunk_size=1000,
+    chunk_overlap=200,
+)
+
+
+def split_with_metadata(documents):
+    chunks = text_splitter.split_documents(documents)
+
+    for index, chunk in enumerate(chunks):
+        chunk.metadata["chunk_index"] = index
+        chunk.metadata["chunk_position"] = index + 1
+        chunk.metadata["total_chunks"] = len(chunks)
+
+    return chunks
 
 def extract_video_id(url):
     match = re.search(r"(?:v=|\/)([0-9A-Za-z_-]{11}).*", url)
@@ -41,7 +55,7 @@ def load_youtube(url):
         final_text = "\n".join(full_text)
 
         doc = Document(page_content=final_text, metadata={"source": url, "type": "youtube"})
-        return text_splitter.split_documents([doc])
+        return split_with_metadata([doc])
     except Exception as e:
         print(f"Error loading YouTube: {e}")
         return []
@@ -52,7 +66,7 @@ def load_url(url):
         docs = loader.load()
         for doc in docs:
             doc.metadata["type"] = "url"
-        return text_splitter.split_documents(docs)
+        return split_with_metadata(docs)
     except Exception as e:
         print(f"Error loading URL: {e}")
         return []
@@ -63,7 +77,7 @@ def load_pdf(file_path):
         docs = loader.load()
         for doc in docs:
             doc.metadata["type"] = "pdf"
-        return text_splitter.split_documents(docs)
+        return split_with_metadata(docs)
     except Exception as e:
         print(f"Error loading PDF: {e}")
         return []
@@ -73,7 +87,7 @@ def load_txt(file_path):
         with open(file_path, "r", encoding="utf-8") as f:
             text = f.read()
         doc = Document(page_content=text, metadata={"source": os.path.basename(file_path), "type": "txt"})
-        return text_splitter.split_documents([doc])
+        return split_with_metadata([doc])
     except Exception as e:
         print(f"Error loading TXT: {e}")
         return []
@@ -87,7 +101,7 @@ def load_docx(file_path):
             full_text.append(para.text)
         text = "\n".join(full_text)
         d = Document(page_content=text, metadata={"source": os.path.basename(file_path), "type": "docx"})
-        return text_splitter.split_documents([d])
+        return split_with_metadata([d])
     except Exception as e:
         print(f"Error loading DOCX: {e}")
         return []
@@ -103,7 +117,7 @@ def load_pptx(file_path):
                     full_text.append(shape.text)
         text = "\n".join(full_text)
         d = Document(page_content=text, metadata={"source": os.path.basename(file_path), "type": "pptx"})
-        return text_splitter.split_documents([d])
+        return split_with_metadata([d])
     except Exception as e:
         print(f"Error loading PPTX: {e}")
         return []
@@ -134,7 +148,7 @@ def load_audio(file_path):
         genai.delete_file(audio_file.name)
 
         d = Document(page_content=text, metadata={"source": os.path.basename(file_path), "type": "audio"})
-        return text_splitter.split_documents([d])
+        return split_with_metadata([d])
     except Exception as e:
         print(f"Error loading audio: {e}")
         return []

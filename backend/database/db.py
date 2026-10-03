@@ -62,6 +62,29 @@ class ChatMessage(Base):
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     notebook = relationship("Notebook", back_populates="chat_messages")
 
+class ProcessingJob(Base):
+    __tablename__ = "processing_jobs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    notebook_id = Column(Integer, ForeignKey("notebooks.id"), nullable=False)
+    source_id = Column(Integer, ForeignKey("sources.id"), nullable=True)
+
+    job_type = Column(String, nullable=False)
+    status = Column(String, default="queued", nullable=False)
+
+    total_units = Column(Integer, default=0)
+    completed_units = Column(Integer, default=0)
+
+    current_stage = Column(String, default="queued")
+    error_message = Column(Text, nullable=True)
+
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    started_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+
+    notebook = relationship("Notebook")
+    source = relationship("SourceModel")
+
 Base.metadata.create_all(bind=engine)
 
 def get_db():
