@@ -255,7 +255,8 @@ function Workspace() {
         setChat(prev => [...prev, {
           role: "ai",
           text: res.data.answer,
-          citations: Array.isArray(res.data.citations) ? res.data.citations : []
+          citations: Array.isArray(res.data.citations) ? res.data.citations : [],
+          web_sources: Array.isArray(res.data.web_sources) ? res.data.web_sources : []
         }]);
       } catch (e) {
         setChat(prev => [...prev, { role: "ai", text: "Error connecting to AI." }]);
@@ -614,6 +615,53 @@ function Workspace() {
                                   </details>
                                 );
                               })()}
+
+                            {msg.web_sources?.length > 0 && (
+                              <details className="mt-4 text-xs group">
+                                <summary className="cursor-pointer select-none inline-flex items-center gap-2 text-slate-500 dark:text-neutral-400 hover:text-indigo-500 dark:hover:text-indigo-300 font-medium">
+                                  <Globe className="w-3.5 h-3.5" />
+                                  {msg.web_sources.length} web source{msg.web_sources.length === 1 ? "" : "s"}
+                                </summary>
+
+                                <div className="mt-2 space-y-2">
+                                  <div className="font-medium text-slate-500 dark:text-neutral-400">
+                                    ?? Web Sources
+                                  </div>
+
+                                  {msg.web_sources.map((source, sourceIndex) => (
+                                    <a
+                                      key={`${source.url}-${sourceIndex}`}
+                                      href={source.url}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="block rounded-xl border border-slate-200/70 dark:border-[#3C3D3F]/50 bg-slate-50/70 dark:bg-[#252628]/70 px-3 py-2.5 hover:border-indigo-500/40 hover:bg-indigo-500/5 transition-all"
+                                    >
+                                      <div className="font-medium text-slate-700 dark:text-neutral-200 truncate">
+                                        {source.title || source.domain || "Web source"}
+                                      </div>
+
+                                      <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-slate-400 dark:text-neutral-500">
+                                        {source.domain && (
+                                          <span>{source.domain}</span>
+                                        )}
+
+                                        {source.source_type && (
+                                          <span>
+                                            {source.source_type === "research_paper"
+                                              ? "Research"
+                                              : source.source_type === "official"
+                                                ? "Official"
+                                                : source.source_type === "wikipedia"
+                                                  ? "Wikipedia"
+                                                  : "Web"}
+                                          </span>
+                                        )}
+                                      </div>
+                                    </a>
+                                  ))}
+                                </div>
+                              </details>
+                            )}
                           </div>
                         )}
                       </div>

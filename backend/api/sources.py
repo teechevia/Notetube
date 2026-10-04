@@ -409,6 +409,7 @@ def chat_with_sources(
 
     from services.ai_router import generate_text
     from services.ai_config import Task
+    from services.web_research.orchestrator import run_research_augmentation
 
     rag_start = time.perf_counter()
 
@@ -764,6 +765,28 @@ def chat_with_sources(
 
     context = "\n".join(context_parts)
 
+    # --------------------------------------------------------
+    # Optional web research augmentation.
+    #
+    # Local notebook evidence remains the primary source.
+    # Web research is only added when the research gate says
+    # that local evidence is insufficient or external/current
+    # information is explicitly needed.
+    # --------------------------------------------------------
+    web_research_result = run_research_augmentation(
+        query=req.query,
+        notebook_context=context,
+        evidence_by_question=evidence_by_question,
+    )
+
+    web_evidence = web_research_result.get("evidence", [])
+
+    if web_research_result.get("researched") and web_evidence:
+        web_context = web_research_result.get("context", "")
+
+        if web_context:
+            context = web_context
+
     print(
         "\nTOTAL UNIQUE EVIDENCE:",
         total_unique_evidence,
@@ -791,6 +814,20 @@ You are answering a user's question using only
 the retrieved source material below.
 
 IMPORTANT:
+
+The source context may contain two distinct evidence layers:
+
+- NOTEBOOK SOURCES: material provided by the user. These are the primary
+  source of truth for claims about the user's uploaded material.
+- WEB RESEARCH: supplementary external material retrieved to fill genuine
+  gaps or provide current/external information.
+
+When web research is present:
+- Never present web-derived information as if it came from the notebook.
+- Keep notebook claims and web-derived claims conceptually distinct.
+- If notebook and web evidence disagree, explicitly distinguish the claims.
+- Prefer authoritative or research-oriented web evidence when available.
+- Do not invent web citations, URLs, source names, or facts.
 
 The user may have asked multiple questions in one message.
 
@@ -893,6 +930,11 @@ Your job is to answer the user's question naturally and clearly using ONLY infor
 
 GROUNDING RULES:
 1. Never use outside knowledge, assumptions, guesses, or unsupported inference.
+2. Treat notebook sources as the primary evidence for claims about the user's uploaded material.
+3. Treat web research as supplementary external evidence, not as notebook material.
+4. Never silently merge web-derived facts into claims presented as coming from the notebook.
+5. If notebook and web evidence disagree, distinguish the claims explicitly.
+6. Do not invent web citations, URLs, source names, or factual details.
 2. Every factual claim must be supported by the provided source evidence.
 3. If the sources only partially answer the question, give the supported part and clearly state what is not specified.
 4. If the sources do not contain enough information to answer the question, say so honestly.
@@ -955,9 +997,21 @@ Think through the evidence internally, then give only the final human-readable a
         f"{total_time:.3f}s"
     )
 
+    web_sources = [
+        {
+            "title": item.title,
+            "url": item.url,
+            "domain": item.domain,
+            "source_type": item.source_type,
+            "authority": item.authority,
+        }
+        for item in web_evidence
+    ]
+
     return {
         "answer": answer,
         "citations": citations,
+        "web_sources": web_sources,
     }
 
 
