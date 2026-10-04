@@ -101,6 +101,7 @@ class ChatMessage(Base):
     role = Column(String)
     text = Column(Text)
     audio_url = Column(String, nullable=True)
+    citations = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     notebook = relationship("Notebook", back_populates="chat_messages")
 

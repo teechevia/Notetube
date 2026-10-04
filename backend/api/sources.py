@@ -1,4 +1,5 @@
 import time
+import json
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, BackgroundTasks
 from sqlalchemy.orm import Session
@@ -1439,6 +1440,7 @@ def get_chat_history(
             "role": m.role,
             "text": m.text,
             "audioUrl": m.audio_url,
+            "citations": json.loads(m.citations) if m.citations else [],
         }
         for m in msgs
     ]
@@ -1466,6 +1468,7 @@ def save_chat_history(
             role=m.get("role"),
             text=m.get("text"),
             audio_url=m.get("audioUrl"),
+            citations=json.dumps(m.get("citations", [])),
         )
 
         db.add(msg)
