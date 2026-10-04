@@ -29,6 +29,7 @@ function Workspace() {
   const [input, setInput] = useState("");
   const [chat, setChat] = useState([]);
   const [selectedSources, setSelectedSources] = useState([]);
+  const [highlightedSourceId, setHighlightedSourceId] = useState(null);
   const [initialLoad, setInitialLoad] = useState(true);
   const [showAddSource, setShowAddSource] = useState(false);
   const [newSourceUrl, setNewSourceUrl] = useState("");
@@ -107,6 +108,13 @@ function Workspace() {
       document.documentElement.classList.remove('dark');
     }
   }, [isDarkMode]);
+
+  const navigateToSource = (sourceId) => {
+    if (!sourceId) return;
+    setShowLeftSidebar(true);
+    setHighlightedSourceId(sourceId);
+    setTimeout(() => setHighlightedSourceId(null), 1800);
+  };
 
   const fetchSources = async () => {
     const res = await axios.get(`http://127.0.0.1:8000/notebooks/${notebookId}/sources`);
@@ -443,7 +451,11 @@ function Workspace() {
                     <div key={s.id} onClick={() => {
                       if (selectedSources.includes(s.id)) setSelectedSources(selectedSources.filter(id => id !== s.id));
                       else setSelectedSources([...selectedSources, s.id]);
-                    }} className="group flex flex-col p-3 rounded-xl bg-slate-50/50 dark:bg-[#2D2E30]/50 border border-slate-200 dark:border-[#3C3D3F]/50 cursor-pointer hover:bg-slate-100 dark:bg-[#2D2E30] hover:border-indigo-500/30 transition-all">
+                    }} className={`group flex flex-col p-3 rounded-xl border cursor-pointer transition-all ${
+  highlightedSourceId === s.id
+    ? "border-indigo-500 bg-indigo-500/10 ring-2 ring-indigo-500/30"
+    : "bg-slate-50/50 dark:bg-[#2D2E30]/50 border-slate-200 dark:border-[#3C3D3F]/50 hover:bg-slate-100 dark:hover:bg-[#2D2E30] hover:border-indigo-500/30"
+}`}>
                       <div className="flex items-center gap-3">
                         <input type="checkbox" className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer shrink-0 mr-2" checked={selectedSources.includes(s.id)} onChange={(e) => { if (e.target.checked) setSelectedSources([...selectedSources, s.id]); else setSelectedSources(selectedSources.filter(id => id !== s.id)); }} onClick={(e) => e.stopPropagation()} />
                           {(() => {
@@ -549,7 +561,8 @@ function Workspace() {
                                   {msg.citations.map((citation, citationIndex) => (
                                     <div
                                       key={`${citation.source_id}-${citation.page}-${citation.chunk_index}-${citationIndex}`}
-                                      className="rounded-xl border border-slate-200/70 dark:border-[#3C3D3F]/50 bg-slate-50/70 dark:bg-[#252628]/70 px-3 py-2.5"
+                                      onClick={() => navigateToSource(citation.source_id)}
+                                      className="rounded-xl border border-slate-200/70 dark:border-[#3C3D3F]/50 bg-slate-50/70 dark:bg-[#252628]/70 px-3 py-2.5 cursor-pointer hover:border-indigo-500/40 hover:bg-indigo-500/5 transition-all"
                                     >
                                       <div className="font-medium text-slate-700 dark:text-neutral-200 truncate">
                                         {citation.title || "Unknown source"}
