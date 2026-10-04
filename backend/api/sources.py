@@ -10,6 +10,7 @@ from database.db import (
     Notebook,
     ChatMessage,
     Artifact,
+    SourceKnowledge,
 )
 
 from database.vector_store import (
@@ -859,10 +860,17 @@ class StudioRequest(BaseModel):
     source_ids: list[int] = Field(default_factory=list)
 
 
-def collect_studio_source_text(
+def collect_studio_documents(
     notebook_id: int,
     source_ids: list[int],
 ):
+    """Collect Studio source chunks as ordered LangChain Documents.
+
+    Preserves chunk boundaries and source metadata so long documents
+    can be processed hierarchically.
+    """
+    from langchain_core.documents import Document
+
     vector_store = get_vector_store()
     collection = vector_store._collection
 
@@ -872,22 +880,128 @@ def collect_studio_source_text(
     )
 
     results = collection.get(
-        where=where_filter
+        where=where_filter,
+        include=["documents", "metadatas"],
     )
 
-    if not results or not results.get("documents"):
+    documents_data = results.get("documents", []) if results else []
+    metadatas_data = results.get("metadatas", []) if results else []
+
+    if not documents_data:
         raise ValueError(
             "No sources available to generate from."
         )
 
+    documents = []
+
+    for content, metadata in zip(documents_data, metadatas_data):
+        metadata = metadata or {}
+
+        try:
+            chunk_index = int(metadata.get("chunk_index", 0))
+        except (TypeError, ValueError):
+            chunk_index = 0
+
+        documents.append(
+            Document(
+                page_content=content,
+                metadata={
+                    **metadata,
+                    "chunk_index": chunk_index,
+                },
+            )
+        )
+
+    requested_order = {
+        source_id: index
+        for index, source_id in enumerate(source_ids)
+    }
+
+    documents.sort(
+        key=lambda doc: (
+            requested_order.get(
+                doc.metadata.get("source_id"),
+                len(requested_order),
+            ),
+            int(doc.metadata.get("chunk_index", 0)),
+        )
+    )
+
+    return documents
+
+
+def collect_studio_source_text(
+    notebook_id: int,
+    source_ids: list[int],
+):
+    """Backward-compatible text collector."""
+
+    documents = collect_studio_documents(
+        notebook_id,
+        source_ids,
+    )
+
     return "\n\n".join(
-        results["documents"]
+        document.page_content
+        for document in documents
     )
 
 
 # ============================================================
 # HUMAN NOTES JOB
 # ============================================================
+
+
+def persist_source_knowledge(
+    db: Session,
+    notebook_id: int,
+    source_knowledge: dict[int, str],
+):
+    """
+    Persist one knowledge representation per source.
+
+    Existing knowledge is updated in place with a new version.
+    """
+    for source_id, content in source_knowledge.items():
+        if not content:
+            continue
+
+        source = (
+            db.query(SourceModel)
+            .filter(
+                SourceModel.id == source_id,
+                SourceModel.notebook_id == notebook_id,
+            )
+            .first()
+        )
+
+        if source is None:
+            continue
+
+        existing = (
+            db.query(SourceKnowledge)
+            .filter(
+                SourceKnowledge.source_id == source_id,
+                SourceKnowledge.notebook_id == notebook_id,
+            )
+            .first()
+        )
+
+        if existing:
+            existing.content = content
+            existing.version += 1
+        else:
+            db.add(
+                SourceKnowledge(
+                    source_id=source_id,
+                    notebook_id=notebook_id,
+                    content=content,
+                    version=1,
+                )
+            )
+
+    db.commit()
+
 
 def run_human_notes_job(
     job_id: int,
@@ -898,24 +1012,45 @@ def run_human_notes_job(
     Background worker for human-quality note generation.
     """
 
-    from services.generators import generate_human_notes
+    from services.generators import (
+        generate_human_notes,
+        prepare_source_knowledge,
+    )
 
     db = None
 
     try:
-        full_text = collect_studio_source_text(
+        source_documents = collect_studio_documents(
             notebook_id,
             source_ids,
         )
 
-        notes = generate_human_notes(
-            full_text,
+        source_knowledge = prepare_source_knowledge(
+            source_documents,
             job_id=job_id,
         )
 
         from database.db import SessionLocal
 
         db = SessionLocal()
+
+        persist_source_knowledge(
+            db,
+            notebook_id,
+            source_knowledge,
+        )
+
+        combined_knowledge = "\n\n".join(
+            source_knowledge[source_id]
+            for source_id in source_ids
+            if source_id in source_knowledge
+        )
+
+        notes = generate_human_notes(
+            source_documents,
+            job_id=job_id,
+            prepared_knowledge=combined_knowledge,
+        )
 
         artifact = Artifact(
             notebook_id=notebook_id,
@@ -969,7 +1104,7 @@ def generate_studio_content(
 
     if req.format == "human_notes":
         try:
-            collect_studio_source_text(
+            collect_studio_documents(
                 notebook_id,
                 req.source_ids,
             )
@@ -1009,7 +1144,7 @@ def generate_studio_content(
     # --------------------------------------------------------
 
     try:
-        full_text = collect_studio_source_text(
+        source_documents = collect_studio_documents(
             notebook_id,
             req.source_ids,
         )
@@ -1026,39 +1161,44 @@ def generate_studio_content(
         generate_quiz,
         generate_faq,
         generate_podcast_script,
+        prepare_studio_knowledge,
+    )
+
+    studio_knowledge = prepare_studio_knowledge(
+        source_documents
     )
 
     if req.format == "briefing":
         return {
             "content": generate_briefing_doc(
-                full_text
+                studio_knowledge
             )
         }
 
     elif req.format == "flashcards":
         return {
             "content": generate_flashcards(
-                full_text
+                studio_knowledge
             )
         }
 
     elif req.format == "quiz":
         return {
             "content": generate_quiz(
-                full_text
+                studio_knowledge
             )
         }
 
     elif req.format == "faq":
         return {
             "content": generate_faq(
-                full_text
+                studio_knowledge
             )
         }
 
     elif req.format == "podcast":
         script = generate_podcast_script(
-            full_text,
+            studio_knowledge,
             instruction=req.instruction or "",
             host_a=req.host_a_name or "Host A",
             host_b=req.host_b_name or "Host B",

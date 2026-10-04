@@ -41,6 +41,48 @@ class SourceModel(Base):
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
     notebook = relationship("Notebook", back_populates="sources")
+    knowledge = relationship(
+        "SourceKnowledge",
+        back_populates="source",
+        cascade="all, delete-orphan",
+    )
+
+
+class SourceKnowledge(Base):
+    __tablename__ = "source_knowledge"
+
+    id = Column(Integer, primary_key=True, index=True)
+    source_id = Column(
+        Integer,
+        ForeignKey("sources.id"),
+        nullable=False,
+        unique=True,
+    )
+    notebook_id = Column(
+        Integer,
+        ForeignKey("notebooks.id"),
+        nullable=False,
+    )
+
+    content = Column(Text, nullable=False)
+    version = Column(Integer, default=1, nullable=False)
+
+    created_at = Column(
+        DateTime,
+        default=datetime.datetime.utcnow,
+    )
+    updated_at = Column(
+        DateTime,
+        default=datetime.datetime.utcnow,
+        onupdate=datetime.datetime.utcnow,
+    )
+
+    source = relationship(
+        "SourceModel",
+        back_populates="knowledge",
+    )
+    notebook = relationship("Notebook")
+
 
 class Artifact(Base):
     __tablename__ = "artifacts"

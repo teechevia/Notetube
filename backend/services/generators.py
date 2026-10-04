@@ -47,84 +47,240 @@ def summarize_chunks(chunks, batch_size=12, job_id=None):
         offset = index * batch_size
 
         batch_text = "\n\n".join(
-            f"[SOURCE CHUNK {offset + j}]\n{chunk}"
+            (
+                f"[SOURCE CHUNK {offset + j}]"
+                f" [source_id={getattr(chunk, "metadata", {}).get("source_id", "unknown")}]"
+                f" [chunk_index={getattr(chunk, "metadata", {}).get("chunk_index", offset + j)}]\n"
+                f"{getattr(chunk, "page_content", chunk)}"
+            )
             for j, chunk in enumerate(batch)
         )
 
         prompt = f"""
-You are an evidence-first knowledge extractor.
+You are extracting structured knowledge from SOURCE CHUNKS for a
+long-context knowledge system.
 
-Your ONLY factual authority is the SOURCE CHUNKS below.
+The SOURCE CHUNKS are the ONLY factual authority.
 
-Your job is to extract information that is explicitly supported
-by those chunks while preserving enough detail for later note generation.
+Your goal is NOT merely to list facts. Preserve the actual knowledge,
+explanations, mechanisms, models, examples, arguments, and relationships
+contained in the source so that downstream generators can produce
+human-quality study material without needing the original chunks.
 
-CRITICAL GROUNDING RULES:
+========================
+CORE EXTRACTION PRINCIPLE
+========================
 
-1. NEVER add outside knowledge.
-2. NEVER infer information that is not explicitly stated.
-3. NEVER convert a possibility into a fact.
-4. NEVER add motivations, purposes, benefits, applications,
-   causes, effects, or implications unless explicitly stated.
-5. NEVER add examples that are not in the source.
-6. NEVER rename or reinterpret a concept in a way that changes
-   its meaning.
-7. Preserve exact numbers, names, terminology, conditions,
-   qualifications, and uncertainty.
-8. If something is not stated, DO NOT fill the gap.
-9. Every factual item MUST contain its source chunk ID.
-10. Evidence must be copied directly or nearly directly from
-    the source. Do not fabricate evidence.
+Extract MEANING, not just metadata.
 
-IMPORTANT:
-"separately" does NOT mean "in parallel".
-"checks" does NOT mean "accepts or rejects".
-"used for X" does NOT mean "designed to achieve X".
-Do not make these kinds of logical expansions.
+When the source explains a concept, model, theory, process, argument,
+mechanism, or example, preserve the explanation in enough detail to
+reconstruct what the source actually teaches.
 
-OUTPUT FORMAT:
+For each substantive concept or model, capture when supported:
 
-## Evidence
+- What it is.
+- The question or problem it addresses.
+- The central idea or explanation.
+- How it works or unfolds.
+- Its components, stages, or factors.
+- Explicit causes and effects.
+- Explicit relationships with other ideas.
+- Source-provided examples.
+- Evidence or reasoning used by the source.
+- Explicit consequences or implications.
+- Explicit comparisons or contrasts.
+- Conditions, exceptions, limitations, and uncertainty.
+- Supporting source chunk references.
 
-For every meaningful factual statement, create an item:
+NEVER reduce a substantive model to only its name or category.
 
-- [Chunk N] Evidence: "short exact quote from source"
-  Fact: faithful restatement of ONLY what the evidence says.
+If a chunk explains a model through several stages, preserve those stages
+and what happens at each stage.
 
-## Concepts and Definitions
+If a chunk explains why a phenomenon occurs, preserve that explanation.
 
-Only include concepts explicitly defined or described by the source.
+If a source example illustrates a mechanism, preserve both the example and
+the source-supported connection between them.
 
-- [Chunk N] Concept: ...
-  Evidence: "..."
+IMPORTANT INFERENCE RULE:
+Never create an "implied", "inferred", "suggested", "potential", or
+"interpretive" relationship, process, definition, cause, effect, or
+explanation.
+
+If the source does not explicitly support a field, OMIT that field.
+
+Do not turn source material into:
+- recommendations or policy advice
+- strategic advice
+- predictions not explicitly stated by the source
+- interpretations of what a model "really means"
+- synthesized causal mechanisms that the source does not explicitly state
+- claims that separate concepts are mutually reinforcing
+- claims about what readers, organizations, governments, or businesses
+  should do
+
+A conclusion may summarize source-supported claims, but it must not add a
+new recommendation, interpretation, implication, or causal relationship.
+
+Do not write phrases such as:
+- implied within
+- implied process
+- inferred relationship
+- potential overlap
+- can be viewed as
+- may represent
+- suggests that [when the source does not explicitly say it]
+
+The knowledge representation must contain source-supported knowledge,
+not your own interpretation of how separate source statements fit together.
+
+========================
+STRICT GROUNDING
+========================
+
+DO NOT use pretrained knowledge.
+
+DO NOT fill gaps using common knowledge.
+
+DO NOT infer information that the source does not explicitly support.
+
+DO NOT add definitions, explanations, causes, effects, examples,
+applications, benefits, limitations, historical context, technical
+details, relationships, or interpretations unless supported by the source.
+
+Do not make a source statement stronger than it is.
+
+Preserve uncertainty, disagreement, qualifications, conditions,
+exceptions, and limitations.
+
+When the source presents multiple viewpoints, preserve the distinction
+between them.
+
+========================
+TRACEABILITY
+========================
+
+Every substantive extracted item MUST include its supporting chunk
+reference in the form [Chunk N].
+
+If information is distributed across multiple chunks, preserve all
+relevant chunk references.
+
+Do not remove a reference merely because the same concept appears
+elsewhere.
+
+========================
+PRIORITY
+========================
+
+Prioritize substantive knowledge over incidental metadata.
+
+CORE KNOWLEDGE:
+Central models, concepts, mechanisms, arguments, theories, processes,
+conclusions, and explanations.
+
+SUPPORTING KNOWLEDGE:
+Details that explain, qualify, connect, or provide evidence for core ideas.
+
+EXAMPLES:
+Concrete examples explicitly provided by the source.
+
+CONTEXT:
+Background needed to understand or organize the material.
+
+ADMINISTRATIVE / BIBLIOGRAPHIC:
+ISBNs, publishers, addresses, catalogue information, library notices,
+copyright information, and similar metadata.
+
+Preserve administrative information when present, but do not allow it to
+replace substantive subject knowledge.
+
+========================
+OUTPUT FORMAT
+========================
+
+## Core Knowledge
+
+For every major substantive concept, model, theory, or idea:
+
+### [Concept / Model Name]
+
+- What it is:
+- Central question or problem:
+- Core explanation:
+- Mechanism / how it works:
+- Components / stages:
+- Causes and effects:
+- Relationships:
+- Examples:
+- Consequences / implications:
+- Conditions / limitations / uncertainty:
+- Supporting chunks:
+
+Only include fields supported by the source.
+Do NOT force unsupported fields.
+
+If several chunks describe the same concept, combine them while preserving
+all relevant chunk references.
 
 ## Processes and Sequences
 
-Only include steps explicitly described by the source.
+Capture source-described processes, stages, chains, or progressions.
 
-- [Chunk N] Step: ...
-  Evidence: "..."
+Preserve the actual order and explain what happens at each stage when the
+source provides that information.
 
-## Explicit Relationships
+## Relationships and Connections
 
-Only include relationships explicitly stated by the source.
+Capture explicit relationships, dependencies, contrasts, comparisons,
+cause-effect links, or connections between concepts.
 
-- [Chunk N] Relationship: ...
-  Evidence: "..."
+## Evidence and Examples
 
-## Explicit Examples
+Preserve important source-provided evidence, examples, cases,
+observations, quotations, or demonstrations when they help explain the
+substantive knowledge.
 
-Only include examples explicitly present in the source.
+## Important Details
 
-- [Chunk N] Example: ...
-  Evidence: "..."
+Preserve important terminology, numbers, dates, conditions, exceptions,
+qualifications, limitations, uncertainty, and explicit conclusions.
 
-## Explicit Conclusions
+## Administrative / Bibliographic
 
-Only include conclusions explicitly stated in the source.
+Keep useful metadata compactly.
 
-- [Chunk N] Conclusion: ...
-  Evidence: "..."
+========================
+DEDUPLICATION
+========================
+
+Remove only genuine repetition.
+
+Do NOT remove information merely because two chunks discuss the same
+concept if they provide different explanations, examples, evidence,
+qualifications, or mechanisms.
+
+When combining repeated information, retain the richest
+source-supported explanation and preserve every relevant chunk reference.
+
+========================
+QUALITY CHECK
+========================
+
+Before finalizing, verify:
+
+1. Explanations were preserved, not just names.
+2. Models retain their mechanisms, stages, and reasoning when present.
+3. Important examples and evidence were preserved.
+4. Relationships between ideas were preserved.
+5. Qualifications and uncertainty were preserved.
+6. Every substantive claim has a [Chunk N] reference.
+7. No outside knowledge was introduced.
+8. Metadata does not overwhelm substantive knowledge.
+
+The output becomes persistent knowledge used by downstream generators.
+Information lost here may not be recoverable later.
 
 SOURCE CHUNKS:
 
@@ -260,6 +416,11 @@ Rules:
 - Preserve processes and sequences.
 - Preserve comparisons and relationships.
 - Preserve conclusions supported by the source.
+- PRESERVE every existing [Chunk N] source reference and keep it attached
+  to the factual information it supports.
+- Do not remove, rename, merge, or invent chunk references.
+- If multiple chunks support the same statement, preserve all relevant
+  chunk references.
 - If two sections contain related information, connect them without
   deleting their individual details.
 - Do NOT compress detailed information into generic statements.
@@ -341,12 +502,72 @@ KNOWLEDGE SECTIONS:
             f"Knowledge synthesis failed: {error_message}"
         )
 
-    if len(merged_sections) == 1:
-        return merged_sections[0]
+    # Recursively consolidate sections so the final synthesis
+    # never receives an unbounded amount of source material.
+    current_sections = merged_sections
+    synthesis_round = 1
+
+    while len(current_sections) > 4:
+        next_sections = []
+
+        for i in range(0, len(current_sections), 4):
+            group = current_sections[i:i + 4]
+
+            group_text = "\n\n".join(
+                f"[Knowledge Section {i + j + 1}]\n{section}"
+                for j, section in enumerate(group)
+            )
+
+            recursive_prompt = f"""
+You are consolidating knowledge from several sections of the SAME source.
+
+This is a knowledge-preservation task, NOT a short summary.
+
+Rules:
+- Use ONLY the supplied sections.
+- Do not introduce outside knowledge.
+- Do not invent facts, examples, explanations, causes, or conclusions.
+- Preserve unique information.
+- Remove only genuine duplication.
+- Preserve terminology, definitions, facts, numbers, dates,
+  qualifications, exceptions, examples, processes, relationships,
+  comparisons, and conclusions.
+- PRESERVE every existing [Chunk N] source reference and keep it attached
+  to the factual information it supports.
+- Do not remove, rename, merge, or invent chunk references.
+- If multiple chunks support the same statement, preserve all relevant
+  chunk references.
+- Do not collapse distinct concepts into generic statements.
+- Prefer completeness and clarity over brevity.
+
+Return one detailed consolidated knowledge section.
+
+KNOWLEDGE SECTIONS:
+
+{group_text}
+"""
+
+            next_sections.append(
+                generate_text(
+                    Task.HUMAN_NOTES,
+                    recursive_prompt,
+                    system_instruction=(
+                        "You are a strict academic knowledge consolidator. "
+                        "The supplied sections are the only factual authority. "
+                        "Preserve meaningful information and context."
+                    ),
+                )
+            )
+
+        current_sections = next_sections
+        synthesis_round += 1
+
+    if len(current_sections) == 1:
+        return current_sections[0]
 
     sections_text = "\n\n".join(
         f"[Consolidated Section {i + 1}]\n{section}"
-        for i, section in enumerate(merged_sections)
+        for i, section in enumerate(current_sections)
     )
 
     prompt = f"""
@@ -373,6 +594,11 @@ Rules:
 - Preserve processes and sequences.
 - Preserve relationships and comparisons.
 - Preserve source-supported conclusions.
+- PRESERVE every existing [Chunk N] source reference and keep it attached
+  to the factual information it supports.
+- Do not remove, rename, merge, or invent chunk references.
+- If multiple chunks support the same statement, preserve all relevant
+  chunk references.
 - Do not collapse several distinct concepts into one generic statement.
 - Prefer completeness and clarity over brevity.
 
@@ -584,7 +810,100 @@ def generate_briefing_doc(transcript: str):
     )
 
 
-def generate_human_notes(transcript: str, job_id=None):
+
+def prepare_studio_knowledge(source_documents, job_id=None):
+    """
+    Prepare source material for all long-context Studio generators.
+
+    Structured source chunks are preserved for hierarchical processing.
+    Small sources are passed through directly; larger sources are converted
+    into bounded, source-grounded knowledge through extraction and synthesis.
+    """
+    if not source_documents:
+        return ""
+
+    if isinstance(source_documents, str):
+        chunks = [
+            chunk.strip()
+            for chunk in source_documents.split("\n\n")
+            if chunk.strip()
+        ]
+        transcript = source_documents
+    else:
+        chunks = [
+            document
+            for document in source_documents
+            if getattr(document, "page_content", "").strip()
+        ]
+        transcript = "\n\n".join(
+            document.page_content.strip()
+            for document in chunks
+        )
+
+    if not chunks:
+        return ""
+
+    if len(chunks) <= 12:
+        return transcript
+
+    summaries = summarize_chunks(
+        chunks,
+        batch_size=12,
+        job_id=job_id,
+    )
+
+    return synthesize_summaries(
+        summaries,
+        job_id=job_id,
+    )
+
+
+def prepare_source_knowledge(source_documents, job_id=None):
+    """
+    Build persistent knowledge representations independently for each source.
+
+    Returns:
+        dict[int, str]: source_id -> source-grounded knowledge
+    """
+    if not source_documents:
+        return {}
+
+    if isinstance(source_documents, str):
+        return {}
+
+    grouped = {}
+
+    for document in source_documents:
+        metadata = getattr(document, "metadata", {}) or {}
+        source_id = metadata.get("source_id")
+
+        if source_id is None:
+            continue
+
+        try:
+            source_id = int(source_id)
+        except (TypeError, ValueError):
+            continue
+
+        if getattr(document, "page_content", "").strip():
+            grouped.setdefault(source_id, []).append(document)
+
+    knowledge = {}
+
+    for source_id, documents in grouped.items():
+        knowledge[source_id] = prepare_studio_knowledge(
+            documents,
+            job_id=job_id,
+        )
+
+    return knowledge
+
+
+def generate_human_notes(
+    source_documents,
+    job_id=None,
+    prepared_knowledge=None,
+):
     """
     Generate human-quality study notes from large source material.
 
@@ -603,13 +922,7 @@ def generate_human_notes(transcript: str, job_id=None):
         fail_job,
     )
 
-    chunks = [
-        chunk.strip()
-        for chunk in transcript.split("\n\n")
-        if chunk.strip()
-    ]
-
-    if not chunks:
+    if not source_documents:
         return ""
 
     if job_id:
@@ -623,33 +936,14 @@ def generate_human_notes(transcript: str, job_id=None):
         )
 
     try:
-        # Small source:
-        # No chunk-level extraction is necessary.
-        if len(chunks) <= 12:
-            source_for_notes = transcript
-
-            if job_id:
-                update_progress(
-                    job_id,
-                    completed_units=1,
-                    total_units=2,
-                    stage="preparing_source",
-                )
-
-        else:
-            # Large source:
-            # First stage = source-grounded knowledge extraction.
-            summaries = summarize_chunks(
-                chunks,
-                batch_size=12,
+        source_for_notes = (
+            prepared_knowledge
+            if prepared_knowledge is not None
+            else prepare_studio_knowledge(
+                source_documents,
                 job_id=job_id,
             )
-
-            # Second stage = hierarchical synthesis.
-            source_for_notes = synthesize_summaries(
-                summaries,
-                job_id=job_id,
-            )
+        )
 
         if job_id:
             update_progress(
@@ -660,18 +954,37 @@ def generate_human_notes(transcript: str, job_id=None):
             )
 
         prompt = f"""
-You are transforming SOURCE MATERIAL into study notes.
+You are an expert study-note writer.
 
-ABSOLUTE RULE:
-The SOURCE MATERIAL is the complete and only factual authority.
+Transform the SOURCE MATERIAL into clear, human-quality study notes that
+help a reader understand and remember the material.
 
-Your job is NOT to explain the subject using your own knowledge.
-Your job is to reorganize and clarify what the source actually says.
+The SOURCE MATERIAL is the only factual authority.
+Improve clarity, organization, emphasis, and teaching structure, but NEVER
+introduce factual information that is absent from the source.
 
-SOURCE FIDELITY HAS PRIORITY OVER COMPLETENESS.
+========================
+CORE PRINCIPLE
+========================
 
-If the source contains little information, the final notes must contain
-little information.
+Do not merely mechanically summarize or list facts.
+
+Teach the material using ONLY information supported by the source.
+
+Prioritize:
+
+1. Core knowledge and major ideas.
+2. Important supporting concepts.
+3. Explicit relationships between ideas.
+4. Source-provided examples and evidence.
+5. Source-described processes, sequences, causes, effects, and implications.
+6. Important terminology, numbers, dates, conditions, qualifications,
+   limitations, and uncertainty.
+7. Bibliographic or administrative metadata only when useful, and keep it
+   compact.
+
+If the source contains little information about something, do not fill the
+gap using outside knowledge.
 
 ========================
 ALLOWED TRANSFORMATIONS
@@ -679,24 +992,39 @@ ALLOWED TRANSFORMATIONS
 
 You MAY:
 
-- Rewrite a source statement using clearer language.
-- Simplify wording without changing its factual meaning.
-- Combine multiple source statements when the combined statement adds
-  no information beyond those statements.
-- Reorder source statements for better organization.
-- Convert source statements into bullets, tables, or lists.
-- Repeat information in a different section when necessary for structure.
-- Explain a term ONLY when the source itself provides that explanation.
-- State a relationship ONLY when the source explicitly establishes it.
-- State a process ONLY when the source explicitly describes that process.
-- State a cause, effect, purpose, benefit, limitation, or significance
-  ONLY when the source explicitly states it.
+- Rewrite difficult source language in clearer language.
+- Combine multiple source statements when the combination adds no new fact.
+- Explain a concept using several source-supported statements together.
+- Group scattered information about the same concept.
+- Organize information into a logical learning sequence.
+- Remove genuine repetition.
+- Highlight an explicitly stated important point.
+- Organize related concepts together when useful, but DO NOT create a
+  new relationship, comparison, cause-effect link, implication, or
+  interpretation unless the source explicitly supports that connection.
+- If concepts merely appear related, present them separately rather than
+  inventing a connection.
+- Never label an inference as source-supported.
+- Preserve and explain source-provided examples when their purpose is
+  supported by the source.
+- Turn source-described processes into clear step-by-step explanations.
+- Preserve ONLY stages and transitions explicitly stated in the prepared
+  SOURCE MATERIAL.
+- Do not invent intermediate stages or mechanisms.
+- Do not convert two adjacent facts into a causal or procedural sequence
+  unless the prepared SOURCE MATERIAL explicitly describes that sequence.
+- Do NOT insert intermediate steps, mechanisms, causes, effects, or
+  transitions that are not explicitly described by the source.
+- Use headings, bullets, tables, callouts, and concise paragraphs when they
+  improve understanding.
+- Give substantially more space to central knowledge than to incidental
+  metadata.
 
 ========================
-ABSOLUTE PROHIBITIONS
+STRICT GROUNDING
 ========================
 
-DO NOT use pretrained knowledge.
+DO NOT use pretrained knowledge to fill gaps.
 
 DO NOT add facts because they are:
 - commonly known
@@ -708,122 +1036,161 @@ DO NOT add facts because they are:
 
 DO NOT invent:
 - examples
-- explanations
+- applications
 - causes
 - effects
-- purposes
-- applications
 - benefits
 - limitations
+- motivations
+- consequences
+- definitions
 - relationships
 - comparisons
 - processes
-- sequences
-- motivations
-- consequences
+- interpretations
+- historical context
+- technical explanations
 
-DO NOT expand a short source statement into a broader explanation.
+unless the SOURCE MATERIAL supports them.
 
-If the source says:
+Do not make a claim stronger than the source makes it.
 
-"Branches allow different lines of development."
+Do not convert an implication into a stated fact.
 
-You may write:
-
-"Branches allow different lines of development."
-
-You may also write:
-
-"Branches provide different lines of development."
-
-You MUST NOT write:
-
-"Branches allow developers to work independently."
-
-You MUST NOT write:
-
-"Branches are useful for developing features and fixes."
-
-You MUST NOT write:
-
-"Branches allow multiple developers to work simultaneously."
-
-Those statements may be true in general, but they are NOT supported
-by the source.
+Do not remove uncertainty, conditions, exceptions, or qualifications.
 
 ========================
-SECTION RULES
+IMPORTANCE AND PRIORITY
+========================
+
+Internally classify information as:
+
+CORE KNOWLEDGE
+The central concepts, arguments, models, mechanisms, conclusions, and ideas
+that the source is primarily about.
+
+SUPPORTING KNOWLEDGE
+Details that explain, qualify, connect, or provide evidence for core ideas.
+
+EXAMPLES
+Concrete examples explicitly provided by the source.
+
+CONTEXT
+Background information that helps organize the material.
+
+ADMINISTRATIVE / BIBLIOGRAPHIC
+ISBNs, publishers, addresses, catalogue information, library notices,
+copyright details, and similar metadata.
+
+Do NOT give administrative metadata the same weight as substantive knowledge.
+
+========================
+STUDY NOTE STRUCTURE
 ========================
 
 # Study Notes
 
 ## Overview
 
-Only state what the source explicitly says about the overall material.
-
-Do not invent a broader description of the subject.
+Explain what the source is fundamentally about.
+Focus on the actual subject matter rather than bibliographic metadata.
 
 ## Core Concepts
 
-List concepts explicitly present in the source.
+Identify and teach the most important concepts.
 
-For each concept, include ONLY information explicitly supported by
-the source.
+Do not force every concept into a rigid definition template.
 
-Use:
+For each major concept, use the source-supported information that actually
+helps explain it. A concept may contain a definition, explanation, example,
+evidence, or connection when those are supported by the source.
 
-### Concept Name
+## How the Ideas Fit Together
 
-**Definition:** Only if the source defines it.
+Explain ONLY relationships, dependencies, contrasts, or connections that
+are explicitly present in the SOURCE MATERIAL.
 
-**Explanation:** Only if the source explains it.
+Do NOT create a new relationship merely because two concepts appear in the
+same source or seem conceptually related.
 
-**Example:** Only if the source gives an example.
+IMPORTANT EVIDENCE BOUNDARY:
+The prepared SOURCE MATERIAL is already an extracted knowledge
+representation. Treat it as an evidence boundary.
 
-**Connections:** Only if the source explicitly connects it to another
-concept.
+A relationship, explanation, process step, cause, effect, implication,
+comparison, interpretation, or connection may appear in the final notes
+ONLY if that information is explicitly stated in the prepared SOURCE
+MATERIAL.
 
-Do NOT create missing sections just to make the notes look complete.
+Do not derive a new connection by reasoning across separate source items.
+
+Do not infer that:
+- one concept explains another
+- one concept causes another
+- one concept represents another
+- one concept reflects another
+- one concept extends another
+- one concept responds to another
+- two concepts are analogous
+- two concepts are culturally related
+- two concepts form a larger pattern
+
+unless the prepared SOURCE MATERIAL explicitly states that relationship.
+
+If the relationship is not explicitly present in the prepared SOURCE
+MATERIAL, omit it.
+
+Do NOT interpret one model through another model unless the prepared SOURCE
+MATERIAL explicitly makes that connection.
+
+Do NOT describe a concept as reflecting, analogous to, similar to,
+complementary to, extending, reinforcing, re-framing, representing,
+illustrating, responding to, resulting from, or contributing to another
+concept unless the source explicitly states that relationship.
+
+Do NOT use phrases such as:
+- reflects
+- mirrors
+- analogous to
+- represents
+- illustrates
+- responds to
+- builds on
+- extends
+- reinforces
+- re-frames
+- cultural reinterpretation
+- ongoing reinterpretation
+unless the source explicitly makes that relationship.
+
+If no explicit relationship is present, omit the connection rather than
+creating one.
+
+The goal is to help the reader understand the structure of the material,
+not to invent a more coherent structure than the source provides.
 
 ## Detailed Explanation
 
-Rewrite and organize the source information into a logical order.
+Teach the central material in a logical progression.
 
-Do not add explanations that are absent from the source.
+Prefer coherent explanations over repetitive lists of definitions.
+
+Combine related source information when doing so improves understanding
+without adding factual content.
 
 ## Processes and Sequences
 
-Include this section ONLY if the source explicitly describes a process
-or sequence.
+Include this section only when the source describes an actual process,
+sequence, chain, or progression.
 
-Preserve the source's actual order.
-
-Do NOT construct a process by combining facts that merely appear
-related.
-
-## Comparisons and Relationships
-
-Include ONLY relationships or comparisons that the source explicitly
-states as a relationship.
-
-Do NOT create a relationship merely because two source statements
-appear related.
-
-For example, if the source says:
-
-"Branches allow different lines of development."
-"Developers can merge branches to combine changes."
-
-Do NOT combine them into a new relationship such as:
-"Branches can later be merged to combine development lines."
-
-Keep the statements separate unless the source explicitly connects them.
+Preserve the source-supported order and meaning.
 
 ## Examples
 
-Include ONLY examples explicitly present in the source.
+Include useful examples explicitly provided by the source.
 
-If there are no examples, omit this section.
+Explain what an example demonstrates only when that interpretation is
+supported by the source.
 
 ## Important Details
 
@@ -839,39 +1206,63 @@ Preserve important:
 - uncertainty
 - explicit conclusions
 
+Do not allow incidental metadata to overwhelm these details.
+
 ## Key Takeaways
 
-Create concise takeaways by restating the most important source
-statements.
+Give concise, high-value takeaways covering the central ideas.
 
-Do NOT introduce new information.
+Avoid repeating the same information unnecessarily.
+
+## Source Metadata
+
+Include only useful bibliographic or administrative information.
+Keep this section compact.
+
+Omit any section that has no meaningful source-supported content.
+
+========================
+QUALITY STANDARD
+========================
+
+The final result should feel like notes prepared by an excellent teacher
+who carefully studied this source.
+
+The notes should be:
+
+- clear
+- explanatory
+- well organized
+- selective
+- useful for learning
+- useful for revision
+- detailed where the source is detailed
+- concise where the source is incidental
+- completely faithful to the source
+
+Do NOT optimize for maximum information density.
+
+Optimize for understanding while remaining completely source-grounded.
 
 ========================
 FINAL GROUNDING CHECK
 ========================
 
-Before producing the answer, inspect EVERY factual statement.
+Before producing the answer, inspect every factual claim.
 
-For each statement ask:
+Ask:
 
-"Where exactly is this information supported by the SOURCE MATERIAL?"
+"Can this claim be supported directly by the SOURCE MATERIAL?"
 
-If the answer is:
-- explicitly stated → KEEP IT
-- directly restated → KEEP IT
-- merely implied → REMOVE IT
-- common knowledge → REMOVE IT
-- logically obvious → REMOVE IT
-- likely true → REMOVE IT
-- useful but absent → REMOVE IT
-
-When uncertain, REMOVE the statement.
-
-The final notes must contain less information rather than unsupported
-information.
+If explicitly stated → KEEP IT.
+If directly restated → KEEP IT.
+If multiple source statements combine without adding information → KEEP IT.
+If merely implied → REMOVE IT.
+If based on common knowledge → REMOVE IT.
+If logically obvious but unstated → REMOVE IT.
+If useful but unsupported → REMOVE IT.
 
 SOURCE MATERIAL:
-
 {source_for_notes}
 """
 
