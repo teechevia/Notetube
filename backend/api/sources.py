@@ -727,12 +727,19 @@ def chat_with_sources(
             f"Question: {question}\n"
         )
 
-        for item, evidence_text in items:
+        for evidence_index, (item, evidence_text) in enumerate(
+            items,
+            start=1,
+        ):
             doc = item["document"]
 
             citation = build_evidence_metadata(doc)
 
+            citation["question_index"] = question_index
+            citation["evidence_index"] = evidence_index
+
             citation_key = (
+                question_index,
                 citation.get("source_id"),
                 citation.get("page"),
                 citation.get("page_label"),
