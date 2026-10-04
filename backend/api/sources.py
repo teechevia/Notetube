@@ -649,24 +649,85 @@ def chat_with_sources(
     context_parts = []
     total_unique_evidence = 0
 
-    for question_index in sorted(evidence_by_question):
+    # --------------------------------------------------------
+    # Fair multi-question context allocation.
+    #
+    # Evidence is consumed round-robin so one question cannot
+    # exhaust the entire context window before later questions
+    # receive any evidence.
+    # --------------------------------------------------------
 
-        items = evidence_by_question[question_index]
+    question_indices = [
+        question_index
+        for question_index in sorted(evidence_by_question)
+        if evidence_by_question[question_index]
+    ]
+
+    evidence_positions = {
+        question_index: 0
+        for question_index in question_indices
+    }
+
+    selected_items = {
+        question_index: []
+        for question_index in question_indices
+    }
+
+    remaining = True
+
+    while remaining and context_chars < MAX_CONTEXT_CHARS:
+        remaining = False
+
+        for question_index in question_indices:
+            items = evidence_by_question[question_index]
+            position = evidence_positions[question_index]
+
+            if position >= len(items):
+                continue
+
+            item = items[position]
+            evidence_positions[question_index] += 1
+
+            doc = item["document"]
+            evidence_text = (
+                f"[Evidence {position + 1}]\n"
+                f"{build_source_label(doc)}\n"
+                f"{doc.page_content.strip()}\n"
+            )
+
+            if not doc.page_content.strip():
+                continue
+
+            if context_chars + len(evidence_text) > MAX_CONTEXT_CHARS:
+                continue
+
+            selected_items[question_index].append(
+                (item, evidence_text)
+            )
+
+            context_chars += len(evidence_text)
+            total_unique_evidence += 1
+            remaining = True
+
+    # --------------------------------------------------------
+    # Build final context in question order while preserving
+    # the original reranking order within each question.
+    # --------------------------------------------------------
+
+    for question_index in question_indices:
+        items = selected_items[question_index]
 
         if not items:
             continue
 
-        question = items[0]["question"]
+        question = evidence_by_question[question_index][0]["question"]
 
         context_parts.append(
             f"========== QUESTION {question_index} ==========\n"
             f"Question: {question}\n"
         )
 
-        for evidence_index, item in enumerate(
-            items,
-            start=1,
-        ):
+        for item, evidence_text in items:
             doc = item["document"]
 
             citation = build_evidence_metadata(doc)
@@ -678,39 +739,20 @@ def chat_with_sources(
                 citation.get("chunk_index"),
             )
 
-            text = doc.page_content.strip()
-
-            if not text:
-                continue
-
-            metadata_label = (
-                f"[Evidence {evidence_index}]\n"
-                f"{build_source_label(doc)}\n"
-            )
-
-            evidence_text = (
-                f"{metadata_label}"
-                f"{text}\n"
-            )
-
-            if context_chars + len(evidence_text) > MAX_CONTEXT_CHARS:
-                print(
-                    "CONTEXT BUDGET REACHED:",
-                    MAX_CONTEXT_CHARS,
-                )
-                break
-
             context_parts.append(evidence_text)
-            context_chars += len(evidence_text)
 
             if citation_key not in seen_citations:
                 seen_citations.add(citation_key)
                 citations.append(citation)
 
-            total_unique_evidence += 1
-
         context_parts.append(
             f"========== END QUESTION {question_index} ==========\n"
+        )
+
+    if context_chars >= MAX_CONTEXT_CHARS:
+        print(
+            "CONTEXT BUDGET REACHED:",
+            MAX_CONTEXT_CHARS,
         )
 
     context = "\n".join(context_parts)
