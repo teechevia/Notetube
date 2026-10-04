@@ -317,6 +317,44 @@ def build_source_filter(
 # RAG 2.5 — EVIDENCE-ISOLATED CHAT
 # ============================================================
 
+def build_evidence_metadata(doc):
+    metadata = doc.metadata or {}
+    citation = {
+        "source_id": metadata.get("source_id"),
+        "title": metadata.get("title") or metadata.get("source"),
+        "author": metadata.get("author"),
+        "type": metadata.get("type"),
+        "page": metadata.get("page"),
+        "page_label": metadata.get("page_label"),
+        "chunk_index": metadata.get("chunk_index"),
+    }
+    return {
+        key: value
+        for key, value in citation.items()
+        if value not in (None, "", "NullObject")
+    }
+
+
+def build_source_label(doc):
+    metadata = doc.metadata or {}
+    title = metadata.get("title") or metadata.get("source") or "Unknown source"
+    author = metadata.get("author")
+    page_label = metadata.get("page_label")
+    page = metadata.get("page")
+
+    label = f"Source: {title}"
+
+    if author:
+        label += f" | Author: {author}"
+
+    if page_label:
+        label += f" | Page: {page_label}"
+    elif page is not None:
+        label += f" | Page: {page}"
+
+    return label
+
+
 def decompose_query(query: str) -> list[str]:
     """
     Split a user message into independent questions.
@@ -602,6 +640,11 @@ def chat_with_sources(
     # Build isolated, question-labelled context.
     # --------------------------------------------------------
 
+    MAX_CONTEXT_CHARS = 60000
+    context_chars = 0
+    citations = []
+    seen_citations = set()
+
     context_parts = []
     total_unique_evidence = 0
 
@@ -625,24 +668,43 @@ def chat_with_sources(
         ):
             doc = item["document"]
 
-            source_id = doc.metadata.get(
-                "source_id"
+            citation = build_evidence_metadata(doc)
+
+            citation_key = (
+                citation.get("source_id"),
+                citation.get("page"),
+                citation.get("page_label"),
+                citation.get("chunk_index"),
             )
 
-            chunk_index = doc.metadata.get(
-                "chunk_index"
-            )
+            text = doc.page_content.strip()
+
+            if not text:
+                continue
 
             metadata_label = (
-                f"[Evidence {evidence_index} | "
-                f"Source ID: {source_id} | "
-                f"Chunk: {chunk_index}]"
+                f"[Evidence {evidence_index}]\n"
+                f"{build_source_label(doc)}\n"
             )
 
-            context_parts.append(
-                f"{metadata_label}\n"
-                f"{doc.page_content}\n"
+            evidence_text = (
+                f"{metadata_label}"
+                f"{text}\n"
             )
+
+            if context_chars + len(evidence_text) > MAX_CONTEXT_CHARS:
+                print(
+                    "CONTEXT BUDGET REACHED:",
+                    MAX_CONTEXT_CHARS,
+                )
+                break
+
+            context_parts.append(evidence_text)
+            context_chars += len(evidence_text)
+
+            if citation_key not in seen_citations:
+                seen_citations.add(citation_key)
+                citations.append(citation)
 
             total_unique_evidence += 1
 
@@ -844,7 +906,8 @@ Think through the evidence internally, then give only the final human-readable a
     )
 
     return {
-        "answer": answer
+        "answer": answer,
+        "citations": citations,
     }
 
 
