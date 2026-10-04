@@ -550,44 +550,70 @@ function Workspace() {
                               <ReactMarkdown>{msg.text}</ReactMarkdown>
                             </div>
 
-                            {msg.citations?.length > 0 && (
-                              <details className="mt-4 text-xs group">
-                                <summary className="cursor-pointer select-none inline-flex items-center gap-2 text-slate-500 dark:text-neutral-400 hover:text-indigo-500 dark:hover:text-indigo-300 font-medium">
-                                  <BookOpen className="w-3.5 h-3.5" />
-                                  {msg.citations.length} source{msg.citations.length === 1 ? "" : "s"}
-                                </summary>
+                            {msg.citations?.length > 0 && (() => {
+                                const citationGroups = msg.citations.reduce((groups, citation) => {
+                                  const questionIndex = citation.question_index ?? 1;
 
-                                <div className="mt-2 space-y-2">
-                                  {msg.citations.map((citation, citationIndex) => (
-                                    <div
-                                      key={`${citation.source_id}-${citation.page}-${citation.chunk_index}-${citationIndex}`}
-                                      onClick={() => navigateToSource(citation.source_id)}
-                                      className="rounded-xl border border-slate-200/70 dark:border-[#3C3D3F]/50 bg-slate-50/70 dark:bg-[#252628]/70 px-3 py-2.5 cursor-pointer hover:border-indigo-500/40 hover:bg-indigo-500/5 transition-all"
-                                    >
-                                      <div className="font-medium text-slate-700 dark:text-neutral-200 truncate">
-                                        {citation.title || "Unknown source"}
+                                  if (!groups[questionIndex]) {
+                                    groups[questionIndex] = [];
+                                  }
+
+                                  groups[questionIndex].push(citation);
+                                  return groups;
+                                }, {});
+
+                                const questionIndices = Object.keys(citationGroups);
+                                const hasMultipleQuestions = questionIndices.length > 1;
+
+                                return (
+                                  <details className="mt-4 text-xs group">
+                                  <summary className="cursor-pointer select-none inline-flex items-center gap-2 text-slate-500 dark:text-neutral-400 hover:text-indigo-500 dark:hover:text-indigo-300 font-medium">
+                                    <BookOpen className="w-3.5 h-3.5" />
+                                    {msg.citations.length} source{msg.citations.length === 1 ? "" : "s"}
+                                  </summary>
+
+                                  <div className="mt-2 space-y-3">
+                                    {questionIndices.map((questionIndex) => (
+                                      <div key={questionIndex} className="space-y-2">
+                                        {hasMultipleQuestions && (
+                                          <div className="font-medium text-slate-500 dark:text-neutral-400">
+                                            Question {questionIndex}
+                                          </div>
+                                        )}
+
+                                        {citationGroups[questionIndex].map((citation, citationIndex) => (
+                                          <div
+                                            key={`${citation.source_id}-${citation.page}-${citation.chunk_index}-${questionIndex}-${citationIndex}`}
+                                            onClick={() => navigateToSource(citation.source_id)}
+                                            className="rounded-xl border border-slate-200/70 dark:border-[#3C3D3F]/50 bg-slate-50/70 dark:bg-[#252628]/70 px-3 py-2.5 cursor-pointer hover:border-indigo-500/40 hover:bg-indigo-500/5 transition-all"
+                                          >
+                                            <div className="font-medium text-slate-700 dark:text-neutral-200 truncate">
+                                              {citation.title || "Unknown source"}
+                                            </div>
+
+                                            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-slate-400 dark:text-neutral-500">
+                                              {citation.author && (
+                                                <span>{citation.author}</span>
+                                              )}
+
+                                              {(citation.page_label || citation.page !== undefined) && (
+                                                <span>
+                                                  Page {citation.page_label || citation.page}
+                                                </span>
+                                              )}
+
+                                              {citation.chunk_index !== undefined && (
+                                                <span>Chunk {citation.chunk_index}</span>
+                                              )}
+                                            </div>
+                                          </div>
+                                        ))}
                                       </div>
-
-                                      <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-slate-400 dark:text-neutral-500">
-                                        {citation.author && (
-                                          <span>{citation.author}</span>
-                                        )}
-
-                                        {(citation.page_label || citation.page !== undefined) && (
-                                          <span>
-                                            Page {citation.page_label || citation.page}
-                                          </span>
-                                        )}
-
-                                        {citation.chunk_index !== undefined && (
-                                          <span>Chunk {citation.chunk_index}</span>
-                                        )}
-                                      </div>
-                                    </div>
-                                  ))}
-                                </div>
-                              </details>
-                            )}
+                                    ))}
+                                  </div>
+                                  </details>
+                                );
+                              })()}
                           </div>
                         )}
                       </div>
