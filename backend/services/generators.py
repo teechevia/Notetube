@@ -426,19 +426,51 @@ def clean_json_response(res: str):
 
 def generate_flashcards(transcript: str):
     prompt = (
-        "Create 10 important flashcards from this text. "
-        "Return ONLY a valid JSON array of objects. "
+        "Create exactly 10 source-grounded flashcards from the supplied source.\n\n"
+        "STRICT SOURCE RULES:\n"
+        "- Every question and answer must be directly supported by the source.\n"
+        "- Do NOT use outside knowledge.\n"
+        "- Do NOT invent facts, examples, explanations, relationships, or "
+        "definitions.\n"
+        "- Answers must preserve the meaning of the source.\n"
+        "- Prefer important definitions, explicit facts, processes, "
+        "examples, and relationships stated in the source.\n"
+        "- If the source contains fewer than 10 distinct facts, create "
+        "different questions from the available source information without "
+        "adding new information.\n\n"
+        "Return ONLY a valid JSON array of exactly 10 objects. "
         "Each object must have exactly two keys: "
-        "'front' (the question or term) and "
-        "'back' (the answer or definition). "
-        "Do NOT include markdown blocks like ```json.\n\n"
-        f"Text:\n{transcript}"
+        "'front' and 'back'. "
+        "Do NOT include markdown code fences.\n\n"
+        f"Source:\n{transcript}"
     )
 
-    res = generate_text(Task.FLASHCARDS, prompt)
+    res = generate_text(
+        Task.FLASHCARDS,
+        prompt,
+        system_instruction=(
+            "Generate only source-grounded flashcards. "
+            "The source is the only factual authority. "
+            "Never add outside or inferred information."
+        ),
+    )
 
     try:
-        return json.loads(clean_json_response(res))
+        cards = json.loads(clean_json_response(res))
+
+        if not isinstance(cards, list) or len(cards) != 10:
+            raise ValueError("Expected exactly 10 flashcards")
+
+        for card in cards:
+            if (
+                not isinstance(card, dict)
+                or set(card.keys()) != {"front", "back"}
+                or not isinstance(card["front"], str)
+                or not isinstance(card["back"], str)
+            ):
+                raise ValueError("Invalid flashcard structure")
+
+        return cards
 
     except Exception as e:
         return [
@@ -451,19 +483,56 @@ def generate_flashcards(transcript: str):
 
 def generate_quiz(transcript: str):
     prompt = (
-        "Create a 5-question multiple choice quiz from this text. "
-        "Return ONLY a valid JSON array of objects. "
-        "Each object must have: 'question' (string), "
-        "'options' (array of 4 strings), and "
-        "'answer' (the exact string of the correct option). "
-        "Do NOT include markdown blocks.\n\n"
-        f"Text:\n{transcript}"
+        "Create exactly 5 source-grounded multiple-choice questions from "
+        "the supplied source.\n\n"
+        "STRICT SOURCE RULES:\n"
+        "- Every question must be answerable from the source alone.\n"
+        "- The correct answer must be explicitly supported by the source.\n"
+        "- Every distractor must also be derived from information stated "
+        "in the source.\n"
+        "- Do NOT invent facts merely to create distractors.\n"
+        "- Do NOT use outside knowledge or inferred information.\n"
+        "- Do NOT create causes, effects, purposes, examples, relationships, "
+        "or conclusions that are not explicitly stated.\n\n"
+        "Return ONLY a valid JSON array of exactly 5 objects. "
+        "Each object must have exactly these keys: "
+        "'question', 'options', and 'answer'. "
+        "'options' must contain exactly 4 strings. "
+        "'answer' must exactly match one option. "
+        "Do NOT include markdown code fences.\n\n"
+        f"Source:\n{transcript}"
     )
 
-    res = generate_text(Task.QUIZ, prompt)
+    res = generate_text(
+        Task.QUIZ,
+        prompt,
+        system_instruction=(
+            "Generate a source-grounded quiz only. "
+            "The source is the only factual authority. "
+            "Never introduce outside or inferred facts."
+        ),
+    )
 
     try:
-        return json.loads(clean_json_response(res))
+        quiz = json.loads(clean_json_response(res))
+
+        if not isinstance(quiz, list) or len(quiz) != 5:
+            raise ValueError("Expected exactly 5 quiz questions")
+
+        for item in quiz:
+            if (
+                not isinstance(item, dict)
+                or set(item.keys()) != {"question", "options", "answer"}
+                or not isinstance(item["question"], str)
+                or not isinstance(item["options"], list)
+                or len(item["options"]) != 4
+                or not all(isinstance(option, str) for option in item["options"])
+                or not isinstance(item["answer"], str)
+                or item["answer"] not in item["options"]
+            ):
+                raise ValueError("Invalid quiz structure")
+
+        return quiz
 
     except Exception:
         return [
@@ -477,13 +546,42 @@ def generate_quiz(transcript: str):
 
 def generate_briefing_doc(transcript: str):
     prompt = (
-        "Create a comprehensive Briefing Doc summarizing this text. "
-        "Use Markdown. Include an Executive Summary, Key Takeaways, "
-        "and Detailed Breakdown.\n\n"
-        f"Text:\n{transcript}"
+        "Create a source-grounded Briefing Doc from the supplied source.\n\n"
+        "STRICT SOURCE RULES:\n"
+        "- The source is the ONLY factual authority.\n"
+        "- Every factual statement must be explicitly stated in the source "
+        "or be a direct grammatical restatement of a source statement.\n"
+        "- You may shorten, reorder, format, or combine statements only when "
+        "the resulting sentence preserves exactly the information stated.\n"
+        "- Do NOT change relationships between facts.\n"
+        "- Do NOT turn a purpose into a capability, a capability into a "
+        "result, or an action into an independently stated outcome.\n"
+        "- Do NOT add outside knowledge or common knowledge.\n"
+        "- Do NOT invent examples, causes, effects, purposes, benefits, "
+        "limitations, applications, relationships, or conclusions.\n"
+        "- Do NOT infer information merely because it seems logically obvious.\n"
+        "- If a detail cannot be stated directly from the source, omit it.\n\n"
+        "Use Markdown with exactly these sections:\n"
+        "## Executive Summary\n"
+        "## Key Takeaways\n"
+        "## Detailed Breakdown\n\n"
+        "GROUNDING CHECK:\n"
+        "Before returning the answer, inspect every factual sentence. "
+        "Remove any sentence that adds information not explicitly present "
+        "in the source. Prefer omission over unsupported detail.\n\n"
+        f"Source:\n{transcript}"
     )
 
-    return generate_text(Task.BRIEFING, prompt)
+    return generate_text(
+        Task.BRIEFING,
+        prompt,
+        system_instruction=(
+            "Create a strictly source-grounded briefing. The supplied source "
+            "is the only factual authority. Every factual statement must be "
+            "explicitly supported by the source. Never add inferred outcomes, "
+            "relationships, explanations, or outside knowledge."
+        ),
+    )
 
 
 def generate_human_notes(transcript: str, job_id=None):
@@ -812,12 +910,31 @@ SOURCE MATERIAL:
 
 def generate_faq(transcript: str):
     prompt = (
-        "Create a Frequently Asked Questions (FAQ) document based "
-        "on this text. Use Markdown. Format as Q: and A: pairs.\n\n"
-        f"Text:\n{transcript}"
+        "Create a source-grounded Frequently Asked Questions document "
+        "from the supplied source.\n\n"
+        "STRICT SOURCE RULES:\n"
+        "- Every question must be answerable from the source.\n"
+        "- Every answer must contain only information supported by the source.\n"
+        "- Do NOT add outside knowledge.\n"
+        "- Do NOT invent examples, explanations, causes, effects, purposes, "
+        "applications, relationships, or conclusions.\n"
+        "- Do NOT infer information that is merely implied or logically obvious.\n"
+        "- Prefer questions about definitions, explicit facts, processes, "
+        "examples, and relationships actually stated in the source.\n\n"
+        "Use Markdown. Format each item as:\n"
+        "Q: <question>\n"
+        "A: <answer>\n\n"
+        f"Source:\n{transcript}"
     )
 
-    return generate_text(Task.FAQ, prompt)
+    return generate_text(
+        Task.FAQ,
+        prompt,
+        system_instruction=(
+            "Create a source-grounded FAQ. The supplied source is the "
+            "only factual authority. Never add outside or inferred information."
+        ),
+    )
 
 
 def generate_podcast_script(
@@ -828,23 +945,51 @@ def generate_podcast_script(
 ) -> list:
 
     prompt = f"""
-Based on the following source material, generate a two-person podcast
-script between '{host_a}' and '{host_b}'.
+Create a two-person podcast script using ONLY the supplied source material.
 
-Make it conversational, engaging, and informative.
+The speakers may sound conversational, but every factual statement must
+remain directly supported by the source.
+
+STRICT SOURCE RULES:
+- The source is the ONLY factual authority.
+- Do NOT add outside knowledge or common knowledge.
+- Do NOT invent examples, facts, explanations, causes, effects, purposes,
+  applications, benefits, limitations, relationships, or conclusions.
+- Do NOT add introductory context that is not in the source.
+- Do NOT add opinions, commentary, evaluations, summaries of implications,
+  or closing statements containing unsupported information.
+- Do NOT infer information merely because it seems obvious or useful.
+- Questions may only ask about information explicitly present in the source.
+- Answers must only restate or directly quote information supported by source.
+- Conversational wording must not introduce new meaning.
+- Simple acknowledgements such as "Okay", "Right", or "I see" are allowed
+  when they contain no factual claims.
+
+IMPORTANT:
+Do not make the podcast "engaging" by adding background knowledge,
+opinions, examples, or contextual commentary. Engagement must come only
+from the dialogue structure and natural wording.
+
 """
 
     if instruction:
         prompt += (
-            f"\nCRITICAL INSTRUCTION FOR THE PODCAST: "
-            f"{instruction}\n"
+            f"PODCAST INSTRUCTION: {instruction}\n"
+            "The instruction must not override any source-grounding rule.\n\n"
         )
 
     prompt += f"""
-Return the response as a JSON array of objects, where each object has
-'speaker' (either "{host_a}" or "{host_b}") and 'text'.
+Return ONLY a valid JSON array of objects.
+Each object must have exactly:
+- 'speaker': either "{host_a}" or "{host_b}"
+- 'text': the spoken line
 
-Do NOT wrap the output in markdown code blocks, just raw JSON.
+Do NOT wrap the JSON in markdown code fences.
+
+FINAL GROUNDING CHECK:
+Before returning the JSON, inspect every spoken line.
+Remove any factual claim, context, opinion, implication, or conclusion
+that is not directly supported by the source.
 
 Source Material:
 {text}
@@ -853,21 +998,36 @@ Source Material:
     response = generate_text(
         Task.PODCAST,
         prompt,
-        system_instruction="You must reply with valid JSON array only.",
+        system_instruction=(
+            "Return valid JSON only. The source is the only factual authority. "
+            "Every factual statement must be directly supported by the source. "
+            "Never add outside knowledge, context, opinions, implications, "
+            "or unsupported conclusions."
+        ),
     )
 
     try:
-        cleaned_response = response.strip()
+        cleaned_response = clean_json_response(response)
+        script = json.loads(cleaned_response)
 
-        if cleaned_response.startswith("```json"):
-            cleaned_response = cleaned_response[7:]
+        if not isinstance(script, list) or not script:
+            raise ValueError("Expected a non-empty podcast script")
 
-        if cleaned_response.endswith("```"):
-            cleaned_response = cleaned_response[:-3]
+        valid_speakers = {host_a, host_b}
 
-        return json.loads(cleaned_response)
+        for item in script:
+            if (
+                not isinstance(item, dict)
+                or set(item.keys()) != {"speaker", "text"}
+                or item["speaker"] not in valid_speakers
+                or not isinstance(item["text"], str)
+                or not item["text"].strip()
+            ):
+                raise ValueError("Invalid podcast structure")
 
-    except json.JSONDecodeError:
+        return script
+
+    except Exception:
         return [
             {
                 "speaker": host_a,
