@@ -5,6 +5,9 @@ import { Book, Plus, Trash2, Sun, Moon } from 'lucide-react';
 
 export default function Dashboard() {
   const [notebooks, setNotebooks] = useState([]);
+  const [showCreate, setShowCreate] = useState(false);
+  const [newTitle, setNewTitle] = useState("");
+  const [creating, setCreating] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(true);
   const navigate = useNavigate();
 
@@ -27,29 +30,20 @@ export default function Dashboard() {
   };
 
   const createNotebook = async () => {
-    const title = window.prompt("Enter Notebook Title:");
-
-    if (!title || !title.trim()) {
-      return;
-    }
-
+    const title = newTitle.trim();
+    if (!title) return;
+    setCreating(true);
     try {
-      const res = await axios.post(
-        "http://127.0.0.1:8000/notebooks",
-        {
-          title: title.trim(),
-          description: ""
-        }
-      );
-
-      setNotebooks((prev) => [...prev, res.data]);
+      const res = await axios.post("http://127.0.0.1:8000/notebooks", { title, description: "" });
+      console.log("CREATED", res.status, res.data);
+      await fetchNotebooks();
+      setNewTitle("");
+      setShowCreate(false);
     } catch (e) {
       console.error("CREATE NOTEBOOK ERROR:", e);
-      alert(
-        e.response?.data?.detail ||
-        e.message ||
-        "Failed to create notebook"
-      );
+      alert(JSON.stringify(e.response?.data) || e.message);
+    } finally {
+      setCreating(false);
     }
   };
 
@@ -82,15 +76,32 @@ export default function Dashboard() {
         </button>
       </header>
 
+      {showCreate && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-white dark:bg-[#1E1F20] p-6 rounded-xl w-full max-w-sm mx-4">
+            <h3 className="text-lg font-semibold mb-4">New Notebook</h3>
+            <input
+              autoFocus
+              value={newTitle}
+              onChange={(e) => setNewTitle(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && createNotebook()}
+              placeholder="Notebook title"
+              className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-[#2D2E30] dark:bg-[#131314] outline-none"
+            />
+            <div className="flex justify-end gap-2 mt-4">
+              <button onClick={() => setShowCreate(false)} className="px-4 py-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800">Cancel</button>
+              <button onClick={createNotebook} disabled={creating} className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50">{creating ? "Creating..." : "Create"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <main className="flex-1 p-8 max-w-6xl mx-auto w-full">
         <div className="flex justify-between items-center mb-8">
           <h2 className="text-2xl font-bold">My Notebooks</h2>
 
           <button
-            onClick={() => {
-              alert("BUTTON CLICK WORKS");
-              createNotebook();
-            }}
+            onClick={() => setShowCreate(true)}
             className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg"
           >
             <Plus className="w-5 h-5" />
