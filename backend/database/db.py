@@ -1,8 +1,11 @@
 from sqlalchemy import create_engine, Column, Integer, String, DateTime, ForeignKey, Text
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 import datetime
+import os
 
-SQLALCHEMY_DATABASE_URL = "sqlite:///./notetube.db"
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+SQLALCHEMY_DATABASE_URL = f"sqlite:///{os.path.join(BASE_DIR, 'notetube.db')}"
 
 engine = create_engine(
     SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False}
@@ -136,3 +139,5 @@ def get_db():
         yield db
     finally:
         db.close()
+
+

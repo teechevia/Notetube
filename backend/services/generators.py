@@ -1432,19 +1432,38 @@ def generate_interactive_podcast_response(
     chat_history: str,
     host_a: str = "Host A",
     host_b: str = "Host B",
+    evidence_context: str = "",
 ) -> list:
 
     prompt = f"""
-You are roleplaying as two podcast hosts, '{host_a}' and '{host_b}'.
+You are roleplaying as two intelligent podcast hosts, '{host_a}' and '{host_b}'.
+
 The user has just joined your live podcast and said:
 "{user_message}"
 
 Here is the recent context of the conversation:
 {chat_history}
 
+Here is the relevant evidence retrieved from the user's notebook:
+{evidence_context}
+
+IMPORTANT GROUNDING RULES:
+
+- The notebook evidence is the factual authority for this conversation.
+- Use the evidence to answer the user's question or respond to their comment.
+- Do not use outside knowledge, assumptions, guesses, or unsupported facts.
+- Do not invent details that are not supported by the evidence.
+- If the evidence does not answer the user's question, say naturally that
+  the notebook material does not provide enough information.
+- Never mention retrieval, embeddings, reranking, chunks, vector search,
+  context windows, or internal system details.
+- Keep the conversation natural and podcast-like.
+- The hosts may explain, clarify, connect, or briefly react to supported
+  information, but every factual claim must remain grounded in the evidence.
+- Do not simply read the evidence aloud. Discuss it naturally.
+
 Generate a very short, continuous podcast response
-(1 to 3 lines total) where the hosts reply directly to the user
-or discuss what the user just said.
+(1 to 3 lines total) where the hosts reply directly to the user.
 
 Return the response as a JSON array of objects, where each object has
 'speaker' (either "{host_a}" or "{host_b}") and 'text'.
@@ -1455,24 +1474,35 @@ Do NOT wrap the output in markdown code blocks, just raw JSON.
     response = generate_text(
         Task.PODCAST,
         prompt,
-        system_instruction="You must reply with valid JSON array only.",
+        system_instruction=(
+            "You are a source-grounded live podcast host. "
+            "Return only a valid JSON array. "
+            "Every factual claim must be supported by the provided "
+            "notebook evidence."
+        ),
     )
 
     try:
-        cleaned_response = response.strip()
+        print("========== PODCAST RAW AI RESPONSE ==========")
+        print(repr(response))
+        print("========== END PODCAST RAW RESPONSE ==========")
 
-        if cleaned_response.startswith("```json"):
-            cleaned_response = cleaned_response[7:]
+        cleaned_response = clean_json_response(response)
 
-        if cleaned_response.endswith("```"):
-            cleaned_response = cleaned_response[:-3]
+        decoder = json.JSONDecoder()
+        parsed_response, _ = decoder.raw_decode(cleaned_response.lstrip())
 
-        return json.loads(cleaned_response)
+        if not isinstance(parsed_response, list) or not parsed_response:
+            raise ValueError("Expected a non-empty podcast response")
 
-    except json.JSONDecodeError:
+        return parsed_response
+
+    except (json.JSONDecodeError, ValueError):
         return [
             {
                 "speaker": host_a,
-                "text": "Whoa, looks like we had a technical glitch!",
+                "text": "I think we hit a small technical glitch. Let?s try that again.",
             }
         ]
+
+

@@ -27,19 +27,37 @@ export default function Dashboard() {
   };
 
   const createNotebook = async () => {
-    const title = prompt("Enter Notebook Title:");
-    if (!title) return;
+    const title = window.prompt("Enter Notebook Title:");
+
+    if (!title || !title.trim()) {
+      return;
+    }
+
     try {
-      await axios.post("http://127.0.0.1:8000/notebooks", { title, description: "" });
-      fetchNotebooks();
+      const res = await axios.post(
+        "http://127.0.0.1:8000/notebooks",
+        {
+          title: title.trim(),
+          description: ""
+        }
+      );
+
+      setNotebooks((prev) => [...prev, res.data]);
     } catch (e) {
-      console.error(e);
+      console.error("CREATE NOTEBOOK ERROR:", e);
+      alert(
+        e.response?.data?.detail ||
+        e.message ||
+        "Failed to create notebook"
+      );
     }
   };
 
   const deleteNotebook = async (id, e) => {
     e.stopPropagation();
+
     if (!window.confirm("Are you sure you want to delete this notebook?")) return;
+
     try {
       await axios.delete(`http://127.0.0.1:8000/notebooks/${id}`);
       fetchNotebooks();
@@ -55,7 +73,11 @@ export default function Dashboard() {
           <Book className="w-6 h-6 text-blue-500" />
           <h1 className="text-xl font-semibold">NoteTube</h1>
         </div>
-        <button onClick={() => setIsDarkMode(!isDarkMode)} className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800">
+
+        <button
+          onClick={() => setIsDarkMode(!isDarkMode)}
+          className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800"
+        >
           {isDarkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
         </button>
       </header>
@@ -63,8 +85,12 @@ export default function Dashboard() {
       <main className="flex-1 p-8 max-w-6xl mx-auto w-full">
         <div className="flex justify-between items-center mb-8">
           <h2 className="text-2xl font-bold">My Notebooks</h2>
+
           <button
-            onClick={createNotebook}
+            onClick={() => {
+              alert("BUTTON CLICK WORKS");
+              createNotebook();
+            }}
             className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg"
           >
             <Plus className="w-5 h-5" />
@@ -75,7 +101,9 @@ export default function Dashboard() {
         {notebooks.length === 0 ? (
           <div className="text-center py-20 text-gray-500">
             <Book className="w-16 h-16 mx-auto mb-4 opacity-50" />
-            <p className="text-lg">No notebooks yet. Create your first workspace!</p>
+            <p className="text-lg">
+              No notebooks yet. Create your first workspace!
+            </p>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-6">
@@ -87,6 +115,7 @@ export default function Dashboard() {
               >
                 <div className="flex justify-between items-start mb-4">
                   <Book className="w-8 h-8 text-blue-500" />
+
                   <button
                     onClick={(e) => deleteNotebook(nb.id, e)}
                     className="text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition"
@@ -94,7 +123,11 @@ export default function Dashboard() {
                     <Trash2 className="w-5 h-5" />
                   </button>
                 </div>
-                <h3 className="font-semibold text-lg line-clamp-2">{nb.title}</h3>
+
+                <h3 className="font-semibold text-lg line-clamp-2">
+                  {nb.title}
+                </h3>
+
                 <p className="text-sm text-gray-500 mt-auto">
                   {new Date(nb.created_at).toLocaleDateString()}
                 </p>

@@ -36,6 +36,9 @@ import uuid
 import os
 import shutil
 
+from google import genai
+from config import GEMINI_API_KEY
+
 
 router = APIRouter()
 
@@ -43,6 +46,59 @@ router = APIRouter()
 class SourceCreate(BaseModel):
     url: str
     type: str  # youtube, url
+
+
+# ============================================================
+# GEMINI LIVE: EPHEMERAL TOKEN
+# ============================================================
+
+@router.post("/notebooks/{notebook_id}/studio/podcast/live-token")
+def create_podcast_live_token(
+    notebook_id: int,
+    db: Session = Depends(get_db),
+):
+    notebook = db.query(Notebook).filter(
+        Notebook.id == notebook_id
+    ).first()
+
+    if not notebook:
+        raise HTTPException(
+            status_code=404,
+            detail="Notebook not found",
+        )
+
+    if not GEMINI_API_KEY:
+        raise HTTPException(
+            status_code=500,
+            detail="Gemini API key is not configured",
+        )
+
+    try:
+        client = genai.Client(api_key=GEMINI_API_KEY)
+
+        token = client.auth_tokens.create(
+            config={
+                "uses": 1,
+                "live_connect_constraints": {
+                    "model": "gemini-3.8-live",
+                    "config": {
+                        "session_resumption": {},
+                        "response_modalities": ["AUDIO"],
+                    },
+                },
+            }
+        )
+
+        return {
+            "token": token.name,
+            "model": "gemini-3.8-live",
+        }
+
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to create Gemini Live token: {exc}",
+        )
 
 
 # ============================================================
@@ -1405,7 +1461,7 @@ def get_processing_job(
 # PODCAST AUDIO
 # ============================================================
 
-@router.post("/studio/podcast/audio")
+@router.post("/notebooks/{notebook_id}/studio/podcast/audio")
 async def generate_podcast_audio(
     req: dict,
 ):
@@ -1485,15 +1541,17 @@ async def generate_podcast_audio(
 # ============================================================
 
 class PodcastInteractRequest(BaseModel):
+    notebook_id: int
     message: str
     chat_history: str
+    source_ids: list[int] = Field(default_factory=list)
     host_a_name: str = "Host A"
     host_b_name: str = "Host B"
     voice_a: str = "en-US-ChristopherNeural"
     voice_b: str = "en-US-JennyNeural"
 
 
-@router.post("/studio/podcast/interact")
+@router.post("/notebooks/{notebook_id}/studio/podcast/interact")
 async def interact_podcast(
     req: PodcastInteractRequest,
     db: Session = Depends(get_db),
@@ -1502,11 +1560,74 @@ async def interact_podcast(
         generate_interactive_podcast_response
     )
 
+    vector_store = get_vector_store()
+
+    filter_dict = build_source_filter(
+        req.notebook_id,
+        req.source_ids,
+    )
+
+    candidates = vector_store.similarity_search(
+        req.message,
+        k=30,
+        filter=filter_dict,
+    )
+
+    ranked = rerank_documents(
+        req.message,
+        candidates,
+        top_k=6,
+    )
+
+    expanded = get_neighbor_chunks(
+        ranked,
+        window=2,
+    )
+
+    final_evidence = rerank_documents(
+        req.message,
+        expanded,
+        top_k=8,
+    )
+
+    evidence_parts = []
+
+    for index, doc in enumerate(
+        final_evidence,
+        start=1,
+    ):
+        metadata = doc.metadata or {}
+
+        title = (
+            metadata.get("title")
+            or metadata.get("source")
+            or "Unknown source"
+        )
+
+        page_label = metadata.get("page_label")
+        page = metadata.get("page")
+
+        label = f"Source: {title}"
+
+        if page_label:
+            label += f" | Page: {page_label}"
+        elif page is not None:
+            label += f" | Page: {page}"
+
+        evidence_parts.append(
+            f"[Evidence {index}]\n"
+            f"{label}\n"
+            f"{doc.page_content.strip()}"
+        )
+
+    evidence_context = "\n\n".join(evidence_parts)
+
     script = generate_interactive_podcast_response(
         req.message,
         req.chat_history,
         req.host_a_name,
         req.host_b_name,
+        evidence_context=evidence_context,
     )
 
     return {
@@ -1581,3 +1702,4 @@ def save_chat_history(
     return {
         "status": "ok"
     }
+

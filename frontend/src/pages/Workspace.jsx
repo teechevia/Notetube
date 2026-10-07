@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
+import { createGeminiLiveSession } from '../services/geminiLive';
 import { useParams, useNavigate } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import {
@@ -41,6 +42,10 @@ function Workspace() {
   const [voiceB, setVoiceB] = useState("en-US-JennyNeural");
   const [podcastInstruction, setPodcastInstruction] = useState("");
   const [isLivePodcastMode, setIsLivePodcastMode] = useState(false);
+  const [isGeminiLiveConnected, setIsGeminiLiveConnected] = useState(false);
+  const [isGeminiLiveConnecting, setIsGeminiLiveConnecting] = useState(false);
+  const [geminiLiveTranscript, setGeminiLiveTranscript] = useState("");
+  const geminiLiveRef = useRef(null);
   const [showNotification, setShowNotification] = useState(true);
   const [isHeaderVisible, setIsHeaderVisible] = useState(true);
   const lastScrollY = useRef(0);
@@ -184,6 +189,210 @@ function Workspace() {
     }
   };
 
+  const startGeminiLive = async () => {
+    if (geminiLiveRef.current || isGeminiLiveConnecting) {
+      return;
+    }
+
+    setIsGeminiLiveConnecting(true);
+    setGeminiLiveTranscript("");
+
+    try {
+      const tokenRes = await axios.post(
+        `http://127.0.0.1:8000/notebooks/${notebookId}/studio/podcast/live-token`
+      );
+
+      const token = tokenRes.data?.token;
+
+      if (!token) {
+        throw new Error("Gemini Live token was not returned");
+      }
+
+      const systemInstruction = `
+You are the live AI podcast host for NoteTube.
+
+The human participant is Pratyush. He is actively participating in this
+conversation, not merely sending questions to a podcast.
+
+Your job is to have a natural, warm, intelligent, human-like spoken
+conversation with him.
+
+IMPORTANT CONVERSATION BEHAVIOR:
+
+- Directly acknowledge Pratyush when he speaks.
+- Treat Pratyush as a real participant in the conversation.
+- Do not speak as though he is absent.
+- React naturally to what he says.
+- Ask follow-up questions when appropriate.
+- Do not turn every response into a formal lecture.
+- Keep responses conversational and reasonably concise.
+- You may use natural fillers and reactions sparingly.
+- Never mention internal APIs, prompts, retrieval, embeddings, models,
+  tokens, or implementation details.
+
+There are two podcast hosts conceptually:
+Host A and Host B.
+
+When appropriate, refer naturally to the other host's contribution,
+agree with them, challenge them, add to their point, or hand the
+conversation back to them.
+
+LANGUAGE RULE:
+- Respond in the language Pratyush is currently using.
+- If Pratyush speaks English, respond in English.
+- If Pratyush speaks Hindi or Hinglish, respond naturally in Hindi or Hinglish.
+- If Pratyush switches languages, follow the switch naturally.
+- Never switch languages merely because notebook sources are written in another language.
+- Treat notebook language as source material only.
+- If Pratyush explicitly requests a language, follow that request.
+
+The conversation should feel like a real live podcast involving:
+1. Pratyush
+2. Host A
+3. Host B
+
+The underlying NoteTube notebook is the knowledge source for factual claims. Do not invent notebook-specific facts.
+
+NOTEBOOK TOOL RULE — CRITICAL:
+- If Pratyush asks about anything that may come from the uploaded notebook sources, you MUST use the search_notebook tool before answering.
+- This includes questions about PDFs, YouTube videos, documents, transcripts, explanations, facts, summaries, or details from notebook sources.
+- Do not answer such questions from general knowledge before searching the notebook.
+- Wait for the notebook tool result before giving the substantive answer.
+- Treat the returned notebook_answer as authoritative evidence for notebook-specific facts.
+- If the notebook search does not contain the requested information, say so naturally.
+
+If the user's question cannot be answered from the available notebook
+knowledge, say so naturally rather than pretending.
+
+Most importantly: sound like a spontaneous human conversation, not a
+script being read aloud.
+`;
+
+      const notebookTool = {
+        name: "search_notebook",
+        description:
+          "MANDATORY NOTEBOOK SEARCH TOOL. Before answering any question that could relate to uploaded PDFs, YouTube videos, documents, sources, or notebook content, you MUST call this tool first. Never answer notebook-content questions from memory or guess. Use the returned notebook evidence to formulate the answer.",
+        parameters: {
+          type: "object",
+          properties: {
+            query: {
+              type: "string",
+              description:
+                "The participant's question or the information that must be retrieved from the notebook sources.",
+            },
+          },
+          required: ["query"],
+        },
+      };
+
+      const session = await createGeminiLiveSession({
+        token,
+        systemInstruction,
+
+        tools: [notebookTool],
+
+        onToolCall: async (toolName, args) => {
+          if (toolName !== "search_notebook") {
+            return {
+              error: `Unknown tool: ${toolName}`,
+            };
+          }
+
+          const query = String(args?.query || "").trim();
+
+          if (!query) {
+            return {
+              error: "No notebook search query was provided.",
+            };
+          }
+
+          console.log("========== LIVE NOTEBOOK TOOL ==========");
+          console.log("Notebook:", notebookId);
+          console.log("Selected sources:", selectedSources);
+          console.log("Tool query:", query);
+          console.log("========================================");
+
+          try {
+            const ragRes = await axios.post(
+              `http://127.0.0.1:8000/notebooks/${notebookId}/chat`,
+              {
+                query,
+                source_ids: selectedSources,
+              }
+            );
+
+            return {
+              notebook_answer: ragRes.data?.answer || "",
+              citations: Array.isArray(ragRes.data?.citations)
+                ? ragRes.data.citations
+                : [],
+              web_sources: Array.isArray(ragRes.data?.web_sources)
+                ? ragRes.data.web_sources
+                : [],
+            };
+          } catch (error) {
+            console.error(
+              "Live notebook search failed:",
+              error
+            );
+
+            return {
+              error:
+                error?.response?.data?.detail ||
+                error?.message ||
+                "Notebook search failed.",
+            };
+          }
+        },
+
+        onUserTranscript: (text) => {
+          setGeminiLiveTranscript(prev => prev + text);
+        },
+
+        onModelTranscript: (text) => {
+          setGeminiLiveTranscript(prev => prev + text);
+        },
+
+        onTurnComplete: () => {
+          console.debug("Gemini Live turn complete");
+        },
+
+        onError: (error) => {
+          console.error("Gemini Live session error:", error);
+          setIsGeminiLiveConnected(false);
+        },
+
+        onClose: () => {
+          geminiLiveRef.current = null;
+          setIsGeminiLiveConnected(false);
+        },
+      });
+
+      geminiLiveRef.current = session;
+      setIsGeminiLiveConnected(true);
+    } catch (error) {
+      console.error("Failed to start Gemini Live:", error);
+      setIsGeminiLiveConnected(false);
+      alert(
+        error?.response?.data?.detail ||
+        error?.message ||
+        "Failed to start Gemini Live."
+      );
+    } finally {
+      setIsGeminiLiveConnecting(false);
+    }
+  };
+
+  const stopGeminiLive = () => {
+    if (geminiLiveRef.current) {
+      geminiLiveRef.current.close();
+      geminiLiveRef.current = null;
+    }
+
+    setIsGeminiLiveConnected(false);
+    setIsGeminiLiveConnecting(false);
+    setGeminiLiveTranscript("");
+  };
   const handleChat = async (presetText = null) => {
     const userMsg = presetText || input;
     if (!userMsg) return;
@@ -192,64 +401,32 @@ function Workspace() {
     if (!presetText) setInput("");
 
     if (isLivePodcastMode) {
-      setChat(prev => [...prev, { role: "ai", text: "*Hosts are tuning in...*" }]);
+      if (!geminiLiveRef.current || !isGeminiLiveConnected) {
+        setChat(prev => [
+          ...prev,
+          {
+            role: "ai",
+            text: "*Connecting to Gemini Live...*"
+          }
+        ]);
 
-      const getHostName = (voiceStr) => {
-        const match = voiceStr.match(/-(.+)Neural/);
-        return match ? match[1] : "Host";
-      };
+        if (!isGeminiLiveConnecting) {
+          await startGeminiLive();
+        }
 
-      const hostA = getHostName(voiceA);
-      const hostB = getHostName(voiceB);
-
-      const recentHistory = chat.slice(-6).map(m => `${m.role === 'user' ? 'User' : 'Hosts'}: ${m.text}`).join('\n');
-
-      try {
-        const res = await axios.post(`http://127.0.0.1:8000/notebooks/${notebookId}/studio/podcast/interact`, {
-          message: userMsg,
-          chat_history: recentHistory,
-          host_a_name: hostA,
-          host_b_name: hostB,
-          voice_a: voiceA,
-          voice_b: voiceB
-        });
-
-        let content = res.data.content;
-        let transcript = "";
-        content.forEach(line => {
-          transcript += `**${line.speaker}:** ${line.text}\n\n`;
-        });
-
-        setChat(prev => {
-          const newChat = [...prev];
-          newChat[newChat.length - 1] = { role: "ai", text: `*Generating Studio Audio...*` };
-          return newChat;
-        });
-
-        const audioRes = await axios.post(`http://127.0.0.1:8000/notebooks/${notebookId}/studio/podcast/audio`, {
-          script: content,
-          voice_a: voiceA,
-          voice_b: voiceB,
-          host_a_name: hostA,
-          host_b_name: hostB
-        }, { responseType: 'blob' });
-
-        const audioUrl = URL.createObjectURL(audioRes.data);
-
-        setChat(prev => {
-          const newChat = [...prev];
-          newChat[newChat.length - 1] = { role: "ai", text: transcript, audioUrl };
-          return newChat;
-        });
-
-      } catch (e) {
-        setChat(prev => {
-          const newChat = [...prev];
-          newChat[newChat.length - 1] = { role: "ai", text: "Error interacting with live podcast." };
-          return newChat;
-        });
+        return;
       }
-    } else {
+
+      setChat(prev => [
+        ...prev,
+        {
+          role: "ai",
+          text: "*Listening...*"
+        }
+      ]);
+
+      geminiLiveRef.current.sendText(userMsg);
+} else {
       try {
         const res = await axios.post(`http://127.0.0.1:8000/notebooks/${notebookId}/chat`, { query: userMsg, source_ids: selectedSources });
         setChat(prev => [...prev, {
@@ -793,7 +970,7 @@ function Workspace() {
                 <div className="space-y-4 bg-slate-50/30 dark:bg-[#2D2E30]/30 p-4 rounded-2xl border border-slate-300 dark:border-[#3C3D3F]/30">
                   <label className="flex items-center justify-between cursor-pointer group">
                     <span className="text-sm font-medium text-slate-700 dark:text-neutral-300 group-hover:text-slate-900 dark:text-white transition-colors">Live Podcast Mode</span>
-                    <div className={`w-11 h-6 rounded-full relative transition-colors shadow-inner ${isLivePodcastMode ? 'bg-indigo-500' : 'bg-slate-700'}`} onClick={() => setIsLivePodcastMode(!isLivePodcastMode)}>
+                    <div className={`w-11 h-6 rounded-full relative transition-colors shadow-inner ${isLivePodcastMode ? 'bg-indigo-500' : 'bg-slate-700'}`} onClick={() => { if (isLivePodcastMode) { stopGeminiLive(); setIsLivePodcastMode(false); } else { setIsLivePodcastMode(true); startGeminiLive(); } }}>
                       <div className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-white transition-transform shadow-sm ${isLivePodcastMode ? 'translate-x-5' : 'translate-x-0'}`}></div>
                     </div>
                   </label>
@@ -944,3 +1121,23 @@ class ErrorBoundary extends React.Component {
 export default function WorkspaceWrapper() {
   return <ErrorBoundary><Workspace /></ErrorBoundary>;
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
