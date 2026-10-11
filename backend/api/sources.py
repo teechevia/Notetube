@@ -30,6 +30,7 @@ from services.loaders import (
 from services.job_manager import (
     create_job,
     get_job,
+    complete_job,
 )
 
 import uuid
@@ -80,7 +81,7 @@ def create_podcast_live_token(
             config={
                 "uses": 1,
                 "live_connect_constraints": {
-                    "model": "gemini-3.8-live",
+                    "model": "gemini-3.1-flash-live-preview",
                     "config": {
                         "session_resumption": {},
                         "response_modalities": ["AUDIO"],
@@ -91,7 +92,7 @@ def create_podcast_live_token(
 
         return {
             "token": token.name,
-            "model": "gemini-3.8-live",
+            "model": "gemini-3.1-flash-live-preview",
         }
 
     except Exception as exc:
@@ -1253,6 +1254,12 @@ def run_human_notes_job(
             job_id=job_id,
         )
 
+        print(
+            f"[KNOWLEDGE DEBUG] job={job_id} "
+            f"source_ids={list(source_knowledge.keys())} "
+            f"lengths={ {sid: len(content or "") for sid, content in source_knowledge.items()} }"
+        )
+
         from database.db import SessionLocal
 
         db = SessionLocal()
@@ -1262,6 +1269,16 @@ def run_human_notes_job(
             notebook_id,
             source_knowledge,
         )
+
+        for sid in source_ids:
+            saved = db.query(SourceKnowledge).filter(
+                SourceKnowledge.source_id == sid,
+                SourceKnowledge.notebook_id == notebook_id,
+            ).first()
+            print(
+                f"[PERSIST DEBUG] job={job_id} source={sid} "
+                f"saved_length={len(saved.content or '') if saved else 0}"
+            )
 
         combined_knowledge = "\n\n".join(
             source_knowledge[source_id]
@@ -1285,6 +1302,7 @@ def run_human_notes_job(
         db.add(artifact)
         db.commit()
         db.refresh(artifact)
+        complete_job(job_id)
 
         print(
             f"Human notes job {job_id} completed. "
@@ -1638,6 +1656,34 @@ async def interact_podcast(
 # ============================================================
 # CHAT HISTORY
 # ============================================================
+
+@router.get("/notebooks/{notebook_id}/artifacts/latest")
+def get_latest_artifact(
+    notebook_id: int,
+    artifact_type: str = "human_notes",
+    db: Session = Depends(get_db),
+):
+    artifact = (
+        db.query(Artifact)
+        .filter(
+            Artifact.notebook_id == notebook_id,
+            Artifact.type == artifact_type,
+        )
+        .order_by(Artifact.id.desc())
+        .first()
+    )
+    if not artifact:
+        raise HTTPException(status_code=404, detail="Artifact not found")
+
+    return {
+        "id": artifact.id,
+        "notebook_id": artifact.notebook_id,
+        "type": artifact.type,
+        "title": artifact.title,
+        "content": artifact.content,
+        "created_at": artifact.created_at,
+    }
+
 
 class ChatHistoryRequest(BaseModel):
     messages: list[dict]

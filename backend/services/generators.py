@@ -1,7 +1,18 @@
 import json
+import re
 
 from services.ai_router import generate_text
 from services.ai_config import Task
+
+
+def _validate_knowledge_text(text, stage, minimum=200):
+    if not isinstance(text, str) or len(text.strip()) < minimum:
+        actual = len(text.strip()) if isinstance(text, str) else 0
+        raise ValueError(
+            f"{stage} produced insufficient knowledge "
+            f"({actual} characters; expected at least {minimum})."
+        )
+    return text
 
 
 def summarize_chunks(chunks, batch_size=12, job_id=None):
@@ -299,6 +310,7 @@ SOURCE CHUNKS:
             ),
         )
 
+        _validate_knowledge_text(result, "Human Notes extraction/synthesis")
         return index, result
 
     results = [None] * total_batches
@@ -459,6 +471,7 @@ KNOWLEDGE SECTIONS:
             ),
         )
 
+        _validate_knowledge_text(result, "Human Notes extraction/synthesis")
         return index, result
 
     merged_sections = [None] * len(groups)
@@ -620,6 +633,8 @@ CONSOLIDATED SECTIONS:
                 "Do not aggressively compress the material."
             ),
         )
+
+        _validate_knowledge_text(result, "Final knowledge synthesis")
 
         if job_id:
             update_progress(
@@ -918,7 +933,6 @@ def generate_human_notes(
     from services.job_manager import (
         start_job,
         update_progress,
-        complete_job,
         fail_job,
     )
 
@@ -1245,6 +1259,22 @@ Do NOT optimize for maximum information density.
 Optimize for understanding while remaining completely source-grounded.
 
 ========================
+CITATION PRESERVATION
+========================
+
+The SOURCE MATERIAL contains references such as [Chunk 12].
+These identify the original source evidence.
+
+- Preserve relevant existing [Chunk N] references in the final notes.
+- Keep each reference attached to the factual claim or paragraph it supports.
+- When combining information, preserve the relevant references for that information.
+- Do not invent, renumber, or alter chunk references.
+- Do not remove all citations while rewriting or reorganizing the material.
+- Do not add a citation to a claim that the referenced material does not support.
+- Place citations inline, close to the supported claim.
+- Citations are required even when the notes are otherwise fully grounded.
+
+========================
 FINAL GROUNDING CHECK
 ========================
 
@@ -1280,6 +1310,33 @@ SOURCE MATERIAL:
             ),
         )
 
+        source_chunk_refs = set(
+            re.findall(r"\[Chunk\s+\d+\]", source_for_notes)
+        )
+        result_chunk_refs = set(
+            re.findall(r"\[Chunk\s+\d+\]", result or "")
+        )
+
+        if source_chunk_refs and not result_chunk_refs:
+            raise RuntimeError(
+                "Final study notes lost all source chunk citations. "
+                "The artifact was not accepted; regenerate with citation preservation."
+            )
+
+        invented_refs = result_chunk_refs - source_chunk_refs
+        if invented_refs:
+            raise RuntimeError(
+                "Final study notes contain unknown chunk citations: "
+                + ", ".join(sorted(invented_refs))
+            )
+
+        if len(source_for_notes.strip()) > 5000:
+            _validate_knowledge_text(
+                result,
+                "Final study notes",
+                minimum=500,
+            )
+
         if job_id:
             update_progress(
                 job_id,
@@ -1287,8 +1344,6 @@ SOURCE MATERIAL:
                 total_units=1,
                 stage="notes_generated",
             )
-
-            complete_job(job_id)
 
         return result
 

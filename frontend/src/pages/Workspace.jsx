@@ -472,6 +472,36 @@ script being read aloud.
         host_b_name: hostB,
         source_ids: selectedSources
       });
+
+      if (backendFormat === 'human_notes') {
+        const jobId = res.data.job_id;
+        if (!jobId) throw new Error('Human Notes job was not queued.');
+
+        let job = null;
+        for (let attempt = 0; attempt < 600; attempt++) {
+          await new Promise(resolve => setTimeout(resolve, 1500));
+          const statusRes = await axios.get(
+            `http://127.0.0.1:8000/jobs/${jobId}`
+          );
+          job = statusRes.data;
+
+          if (job.status === 'completed') break;
+          if (job.status === 'failed') {
+            throw new Error(job.error_message || 'Human Notes generation failed.');
+          }
+        }
+
+        if (!job || job.status !== 'completed') {
+          throw new Error('Human Notes generation timed out.');
+        }
+
+        const artifactRes = await axios.get(
+          `http://127.0.0.1:8000/notebooks/${notebookId}/artifacts/latest`,
+          { params: { artifact_type: 'human_notes' } }
+        );
+        res.data.content = artifactRes.data.content;
+      }
+
       let content = res.data.content;
 
       let markdownText = "";

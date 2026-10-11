@@ -77,10 +77,21 @@ def generate_text(
         model_strategy,
     )
 
-    # Fast path: cached response means no API call.
+    def valid_response(response):
+        if not isinstance(response, str) or not response.strip():
+            return False
+        if task == Task.HUMAN_NOTES:
+            text = response.strip()
+            if len(text) < 100:
+                return False
+            if text.upper() in {"FALLBACK_OK", "N/A", "ERROR"}:
+                return False
+        return True
+
+    # Ignore invalid legacy cache entries and regenerate them.
     cached_response = get_cached(cache_key)
 
-    if cached_response is not None:
+    if valid_response(cached_response):
         return cached_response
 
     # Prevent duplicate simultaneous requests for the same request.
@@ -90,7 +101,7 @@ def generate_text(
         # Another request may have completed while we waited.
         cached_response = get_cached(cache_key)
 
-        if cached_response is not None:
+        if valid_response(cached_response):
             return cached_response
 
         errors = []
@@ -113,7 +124,12 @@ def generate_text(
                     model=model_strategy,
                 )
 
-                # Cache only successful non-empty responses.
+                if not valid_response(response):
+                    raise ValueError(
+                        f"{task.value} provider returned an invalid or "
+                        f"insufficient response ({len(response or '')} characters)."
+                    )
+
                 set_cached(
                     cache_key,
                     task,

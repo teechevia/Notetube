@@ -135,7 +135,8 @@ export async function createGeminiLiveSession({
       tools: tools.length > 0 ? [{ functionDeclarations: tools }] : undefined,
       toolConfig: tools.length > 0 ? {
         functionCallingConfig: {
-          mode: "AUTO"
+          mode: "ANY",
+          allowedFunctionNames: ["search_notebook"]
         }
       } : undefined,
       systemInstruction: systemInstruction ? {
@@ -148,13 +149,8 @@ export async function createGeminiLiveSession({
         console.log("LIVE_CONNECTED");
       },
 
-      onmessage: async (message) => {
-        console.debug("Gemini Live message:", {
-          toolCall: !!message?.toolCall,
-          serverContent: message?.serverContent
-            ? Object.keys(message.serverContent)
-            : [],
-        });
+      onmessage: async (message) => { if (message?.setupComplete) console.log("LIVE_SETUP_COMPLETE"); if (message?.goAway) console.warn("LIVE_GO_AWAY", message.goAway);
+        console.log("LIVE_MESSAGE_KEYS", Object.keys(message || {}), "TOOL_CALL", message?.toolCall, "SERVER_CONTENT_KEYS", Object.keys(message?.serverContent || {}), "INPUT_TRANSCRIPT", message?.serverContent?.inputTranscription?.text, "MODEL_PARTS", message?.serverContent?.modelTurn?.parts?.map(p => Object.keys(p)));
         if (message.toolCall) {
           try {
             const functionResponses = [];
@@ -374,17 +370,6 @@ ${notebookContext.text}`,
       },
     },
 
-    config: {
-      responseModalities: [Modality.AUDIO],
-
-      inputAudioTranscription: {},
-      outputAudioTranscription: {},
-
-      tools: tools.length
-        ? [{ functionDeclarations: tools }]
-        : undefined,
-systemInstruction: systemInstruction || undefined,
-    },
   });
 
   const startMicrophone = async () => {
@@ -400,6 +385,7 @@ systemInstruction: systemInstruction || undefined,
     microphoneContext = new AudioContext({
       sampleRate: 16000,
     });
+    console.log('MIC_AUDIO_CONTEXT', microphoneContext.sampleRate, microphoneContext.state);
 
     microphoneSource =
       microphoneContext.createMediaStreamSource(
